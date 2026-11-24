@@ -5,9 +5,11 @@ import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn } from '@multizap/ui';
 import { CURRENT_PHASE, MODULES } from '@/lib/modules';
 import { BrandMark } from '../brand';
+import { useUnreadConversations } from '@/lib/inbox';
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const pathname = usePathname();
+  const unread = useUnreadConversations();
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
 
   return (
@@ -67,6 +69,14 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                   {pending && (
                     <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-subtle">
                       F{m.phase}
+                    </span>
+                  )}
+                  {!pending && m.key === 'inbox' && (unread.data ?? 0) > 0 && (
+                    <span
+                      className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-[#04130d]"
+                      aria-label={`${unread.data} conversas não lidas`}
+                    >
+                      {unread.data! > 99 ? '99+' : unread.data}
                     </span>
                   )}
                 </>

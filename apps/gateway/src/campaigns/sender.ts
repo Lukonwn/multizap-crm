@@ -127,8 +127,19 @@ export class CampaignSender {
           lastMessagePreview: text.slice(0, 120),
         },
       });
-      const message = await tx.message.create({
-        data: {
+      // upsert: o eco da própria sessão pode ter registrado a mensagem antes.
+      const message = await tx.message.upsert({
+        where: {
+          accountId_providerMessageId: { accountId: r.accountId, providerMessageId: result.id },
+        },
+        update: {
+          campaignRecipientId: r.id,
+          body: text,
+          type: image ? 'image' : 'text',
+          mediaKey: asset?.storageKey ?? null,
+          status: 'SENT',
+        },
+        create: {
           accountId: r.accountId,
           conversationId: conversation.id,
           providerMessageId: result.id,

@@ -50,6 +50,12 @@ export interface ManagerOptions {
   /** Falhas seguidas até marcar a instância como "Atenção". */
   attentionAfter?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
+  /** Recebe mensagens da sessão (Central de Mensagens). */
+  onMessages?: (
+    accountId: string,
+    messages: import('./types').IncomingMessage[],
+    historical: boolean,
+  ) => Promise<void>;
 }
 
 const DEFAULT_BACKOFF = [2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
@@ -76,6 +82,7 @@ export class SessionManager {
   private readonly backoff: number[];
   private readonly attentionAfter: number;
   private readonly log: NonNullable<ManagerOptions['log']>;
+  private readonly onMessages: ManagerOptions['onMessages'];
   private generationSeq = 0;
   private shuttingDown = false;
 
@@ -91,6 +98,7 @@ export class SessionManager {
     this.backoff = opts.backoffMs ?? DEFAULT_BACKOFF;
     this.attentionAfter = opts.attentionAfter ?? 3;
     this.log = opts.log ?? (() => undefined);
+    this.onMessages = opts.onMessages;
   }
 
   get activeCount(): number {
@@ -421,6 +429,9 @@ export class SessionManager {
         return this.onClose(s, e.reason, e.message);
       case 'message-status':
         await this.repo.updateMessageStatus(accountId, e.id, e.status);
+        return;
+      case 'messages':
+        if (this.onMessages) await this.onMessages(accountId, e.messages, e.historical);
         return;
     }
   }

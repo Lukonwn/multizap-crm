@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
 import type { CampaignQueue, ImportQueue, ToolQueue } from './lib/queues';
 import { campaignRoutes } from './modules/campaigns/routes';
+import { inboxRoutes } from './modules/inbox/routes';
 import { toolRoutes } from './modules/tools/routes';
 import { assetRoutes } from './modules/assets/routes';
 import { contactRoutes } from './modules/contacts/routes';
@@ -138,6 +139,7 @@ export async function buildApp({
   await app.register(toolRoutes);
   await app.register(assetRoutes);
   await app.register(campaignRoutes);
+  await app.register(inboxRoutes);
 
   return app;
 }

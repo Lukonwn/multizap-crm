@@ -20,7 +20,28 @@ export type ConnEvent =
   | { type: 'open'; jid: string; name?: string }
   | { type: 'close'; reason: CloseReason; statusCode?: number; message?: string }
   | { type: 'activity' }
-  | { type: 'message-status'; id: string; status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' };
+  | { type: 'message-status'; id: string; status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' }
+  /** Mensagens recebidas pela sessão. historical = histórico entregue pelo WhatsApp (não conta como nova). */
+  | { type: 'messages'; messages: IncomingMessage[]; historical: boolean };
+
+export type IncomingMessageType =
+  'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'other';
+
+export interface IncomingMessage {
+  id: string;
+  /** JID da conversa, preferencialmente o de telefone (…@s.whatsapp.net). */
+  chatJid: string;
+  phoneE164: string | null;
+  fromMe: boolean;
+  timestamp: Date;
+  type: IncomingMessageType;
+  text: string | null;
+  pushName: string | null;
+  mimetype?: string;
+  fileName?: string;
+  /** Baixa a mídia (somente imagens são armazenadas). */
+  download?: () => Promise<Buffer>;
+}
 
 export interface OutgoingMessage {
   text: string;

@@ -183,3 +183,19 @@ WhatsApp ──ack──▶ gateway: enviada → entregue → lida (nunca retroc
 - **Sem simulação de comportamento humano**, randomização de intervalos ou rodízio de contas.
 
 **Status:** `PENDING` → (confirmado) → `SENDING` → `SENT` → `DELIVERED` → `READ`, ou `FAILED`/`SKIPPED`. A conclusão é calculada por `refreshCampaignProgress` (pacote database).
+
+## Central de mensagens (Fase 7)
+
+```
+WhatsApp ──▶ gateway (Baileys) ── normalizeMessage ──▶ InboxIngest ──▶ conversations / messages / contacts
+                                                         └─ "SAIR" → opt_outs + consentimento revogado + notificação
+Painel ──POST /conversations/:id/messages──▶ API (mensagem PENDING) ──fila──▶ gateway ReplySender ──▶ WhatsApp
+```
+
+- **O que entra:** só conversas individuais. Grupos, status, canais, reações e mensagens de protocolo são ignorados. Mensagens efêmeras e de visualização única são desembrulhadas. O endereçamento por LID usa o telefone alternativo (`remoteJidAlt`) quando o WhatsApp o informa.
+- **Ao vivo** (`messages.upsert` notify): cria o contato (origem "mensagem recebida", consentimento pendente) quando o número ainda não existe na instância, marca a conversa como pendente e não lida, e baixa imagens até 10 MB para o bucket.
+- **Histórico** entregue pelo WhatsApp ao parear (`messaging-history.set` e `append`): somente os últimos 30 dias. Não conta como não lido, não cria contatos e não dispara descadastramento.
+- **Mensagens enviadas pelo celular** aparecem no histórico e marcam a conversa como respondida.
+- **Sem duplicação:** a chave única `(account_id, provider_message_id)` e o tratamento do eco da própria sessão (`ReplySender` e `CampaignSender` fazem upsert e removem o rascunho) garantem um registro por mensagem.
+- **Respostas** só quando a instância está conectada, as operações não estão pausadas e o contato não pediu descadastramento, a não ser que ele tenha escrito de novo depois do pedido.
+- **Status das conversas:** `PENDING` (o contato escreveu), `ANSWERED` (houve resposta), `CLOSED` (finalizada pelo administrador; uma nova mensagem reabre), `OPEN` (vinda do histórico). "Não lidas" é um contador local, e o MultiZap não envia confirmação de leitura ao contato.

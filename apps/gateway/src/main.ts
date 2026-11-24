@@ -13,6 +13,8 @@ import { LockManager } from './session/lock';
 import { SessionManager } from './session/manager';
 import { handleCommand } from './commands';
 import { CampaignSender } from './campaigns/sender';
+import { InboxIngest } from './inbox/ingest';
+import { ReplySender } from './inbox/reply-sender';
 import { storageFromEnv } from '@multizap/storage';
 
 /**
@@ -45,18 +47,22 @@ const factory = new BaileysFactory(
   process.env.GATEWAY_BROWSER_NAME || 'Chrome',
 );
 const locks = new LockManager(redis, `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`);
-const manager = new SessionManager(prisma, redis, factory, store, locks, { log });
-
-// Armazenamento (imagens das campanhas). Opcional: sem ele, só mensagens de texto.
+// Armazenamento (imagens de campanhas e mídias recebidas). Opcional: sem ele, só texto.
 let storage = null;
 try {
   storage = storageFromEnv();
 } catch (err) {
   logger.warn(
     { err: (err as Error).message },
-    'Armazenamento indisponível: envios com imagem falharão',
+    'Armazenamento indisponível: imagens não serão enviadas nem armazenadas',
   );
 }
+const ingest = new InboxIngest(prisma, storage, log);
+const manager = new SessionManager(prisma, redis, factory, store, locks, {
+  log,
+  onMessages: (accountId, messages, historical) => ingest.ingest(accountId, messages, historical),
+});
+const replies = new ReplySender(prisma, manager, log);
 const sender = new CampaignSender(prisma, storage, manager, log);
 const interrupted = await sender.recoverInterrupted();
 if (interrupted) log('Envios interrompidos marcados para conferência', { interrupted });
@@ -72,7 +78,7 @@ const worker = new Worker<GatewayCommand>(
   GATEWAY_QUEUE,
   async (job) => {
     log('Comando recebido', { type: job.data.type, accountId: job.data.accountId });
-    await handleCommand(manager, sender, job.data);
+    await handleCommand(manager, sender, job.data, replies);
   },
   { connection: redis.duplicate(), concurrency: 5, prefix: process.env.BULLMQ_PREFIX || 'bull' },
 );

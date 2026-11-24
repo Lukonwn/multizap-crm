@@ -234,3 +234,45 @@
 
 - **O envio real pelo WhatsApp não pôde ser testado aqui.** Validar no deploy com um número de teste próprio.
 - O canal de dispositivo conectado não exige modelos aprovados; o suporte a modelos aprovados só se aplicaria a um canal oficial, que não está em uso.
+
+## Fase 7: Central de mensagens ✅
+
+**Entregue**
+
+- **Gateway:**
+  - normalização das mensagens do Baileys (texto, imagem, vídeo, áudio, documento, figurinha, localização, contato; LID → telefone);
+  - registro das mensagens recebidas e do histórico recente (30 dias);
+  - download de imagens;
+  - descadastramento por palavra-chave (SAIR, PARAR, STOP, CANCELAR, DESCADASTRAR, REMOVER);
+  - envio de respostas com tratamento do eco.
+- **API:**
+  - conversas de todas as instâncias, com filtros (todas, não lidas, pendentes, respondidas, finalizadas), pesquisa e instância;
+  - histórico paginado;
+  - dados do contato;
+  - permissão de resposta;
+  - responder, marcar como lida, finalizar e reabrir;
+  - mídia;
+  - contador de não lidas.
+- **Painel:**
+  - Central em três colunas: lista com identificação da instância, histórico com status do canal e composição de resposta, dados do contato (origem, consentimento, etiquetas e observações editáveis);
+  - contador de não lidas no menu.
+
+**Verificação**
+
+- 203 testes: gateway 45 (normalização, histórico, "SAIR", eco sem duplicação, falhas de envio) e API 89 (filtros, paginação, bloqueios de resposta), entre outros.
+- Navegador, com os builds de produção e o código real do gateway com conexão WhatsApp **simulada** (o ambiente não alcança o WhatsApp):
+  - mensagens recebidas criam o contato e a conversa;
+  - imagem recebida exibida;
+  - campanha e resposta do contato no mesmo histórico;
+  - resposta enviada evolui para "Lida", com um único registro mesmo com o eco;
+  - "Sair" descadastra e bloqueia a resposta;
+  - conversa finalizada aparece no filtro "Finalizadas".
+
+**Correção feita durante a verificação**
+
+- O cabeçalho da conversa não atualizava o status ("Respondida") logo após a resposta.
+
+**Pendências conhecidas**
+
+- **Recebimento real não testado aqui** (sem rede até o WhatsApp). Validar no deploy: enviar uma mensagem de outro celular para o número conectado e responder pelo painel.
+- Vídeos, áudios e documentos recebidos aparecem identificados pelo tipo; apenas imagens são baixadas.

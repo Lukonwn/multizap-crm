@@ -1,8 +1,14 @@
-import makeWASocket, { Browsers, makeCacheableSignalKeyStore } from 'baileys';
+import makeWASocket, {
+  Browsers,
+  downloadMediaMessage,
+  makeCacheableSignalKeyStore,
+  type WAMessage,
+} from 'baileys';
 import type { Logger } from 'pino';
 import type { ConnEvent, ConnectionFactory, WaConnection } from '../session/types';
 import type { DbAuthStore } from './auth-store';
 import { mapAck, mapDisconnect } from './disconnect';
+import { normalizeMessage } from './normalize';
 
 /**
  * Cria conexões de dispositivo conectado via Baileys.
@@ -58,7 +64,35 @@ export class BaileysFactory implements ConnectionFactory {
       }
     });
 
-    sock.ev.on('messages.upsert', () => onEvent({ type: 'activity' }));
+    const toIncoming = (list: WAMessage[]) =>
+      list.flatMap((m) => {
+        const n = normalizeMessage(m);
+        if (!n) return [];
+        if (n.type === 'image') {
+          n.download = () =>
+            downloadMediaMessage(
+              m,
+              'buffer',
+              {},
+              { logger: log, reuploadRequest: sock.updateMediaMessage },
+            );
+        }
+        return [n];
+      });
+
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
+      onEvent({ type: 'activity' });
+      const incoming = toIncoming(messages);
+      // "notify" = mensagem nova; "append" = mensagens anexadas (ex.: de outro aparelho/histórico).
+      if (incoming.length)
+        onEvent({ type: 'messages', messages: incoming, historical: type !== 'notify' });
+    });
+
+    // Histórico recente entregue pelo próprio WhatsApp ao vincular o dispositivo.
+    sock.ev.on('messaging-history.set', ({ messages }) => {
+      const incoming = toIncoming(messages);
+      if (incoming.length) onEvent({ type: 'messages', messages: incoming, historical: true });
+    });
 
     // Confirmações reais do WhatsApp para mensagens enviadas por esta sessão.
     sock.ev.on('messages.update', (updates) => {

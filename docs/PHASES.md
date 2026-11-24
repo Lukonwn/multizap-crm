@@ -63,3 +63,43 @@
 
 - **O pareamento real com um celular não pôde ser testado aqui** (sem rede até o WhatsApp). Validar no primeiro deploy: ler o QR, usar o código por número e reiniciar o gateway para confirmar a restauração.
 - Credenciais ilegíveis (por exemplo, `CREDENTIALS_MASTER_KEY` trocada sem manter a versão anterior) levam a tentativas de reconexão sem notificação específica. O tratamento dedicado entra na Fase 9.
+
+## Fase 3: Contatos e importações ✅
+
+**Entregue**
+
+- **Pacotes novos:**
+  - `@multizap/storage`: Railway Bucket (S3, upload multipart em streaming) e driver local para desenvolvimento, com proteção contra path traversal;
+  - `@multizap/files`: leitura de CSV, TXT e XLSX em streaming (detecção de UTF-8/Windows-1252, delimitador e cabeçalho) e escrita de CSV (BOM + `;` para Excel PT-BR) e XLSX.
+- **API:**
+  - contatos: cadastro, edição, exclusão, pesquisa, filtros e paginação;
+  - etiquetas por instância;
+  - consentimento (registrar e revogar), descadastrar e reverter descadastro;
+  - histórico do contato;
+  - exportação CSV/XLSX com filtros;
+  - importações: upload, análise, prévia, confirmação, cancelamento e download dos rejeitados.
+- **Worker:** análise e importação retomável, com notificação em caso de falha.
+- **Painel:**
+  - Contatos com seletor de instância;
+  - detalhe do contato, etiquetas e modais de consentimento;
+  - assistente de importação em 4 passos (as 10 etapas);
+  - histórico de importações.
+- Migration `contacts_imports`: estado `ANALYZING` e contadores de progresso.
+
+**Verificação**
+
+- 128 testes:
+  - storage 3, files 10 (incluindo 200 mil linhas), shared 26, worker 8 (incluindo a retomada após queda simulada), gateway 24;
+  - API 57: isolamento entre instâncias, fluxo de importação ponta a ponta e exportação.
+- Navegador, com os builds de produção (API + worker reais):
+  - importação de um XLSX com 5.000 linhas, resultando em 4.850 importados, 50 duplicados e 100 inválidos;
+  - números conferidos no banco: consentimentos, etiquetas e descadastro;
+  - reenvio do mesmo arquivo bloqueado.
+
+**Correções feitas durante a verificação**
+
+- A lista de contatos podia mostrar dados em cache depois de uma importação. Agora a conclusão invalida o cache e a lista recarrega ao abrir.
+
+**Pendências conhecidas**
+
+- O driver S3 não foi exercitado contra um bucket real neste ambiente (sem bucket disponível). Validar no deploy: enviar uma importação e baixar os rejeitados.

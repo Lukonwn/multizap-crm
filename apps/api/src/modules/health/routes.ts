@@ -32,9 +32,13 @@ export async function healthRoutes(app: FastifyInstance) {
       const v = await app.redis.get(key).catch(() => null);
       return v ? { status: 'up' } : { status: 'down', error: 'Sem heartbeat recente.' };
     };
+    const storage: Check = app.storage
+      ? await timed(() => app.storage!.check())
+      : { status: 'unconfigured' };
     const checks = {
       database,
       redis,
+      storage,
       worker: await heartbeat(HEARTBEAT_KEYS.worker),
       gateway: await heartbeat(HEARTBEAT_KEYS.gateway),
     };

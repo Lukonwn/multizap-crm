@@ -34,6 +34,8 @@ packages/
   shared/     Schemas zod, criptografia, constantes, utilitários
   ui/         Design system "Dark Premium" (Tailwind v4 + Radix)
   integrations/ Contratos dos provedores de canal
+  storage/    Armazenamento de arquivos (Railway Bucket / local)
+  files/      Leitura e escrita de CSV, TXT e XLSX em streaming
 prisma/       schema.prisma + migrations
 docs/         Arquitetura, deploy, segurança, ADRs
 ```

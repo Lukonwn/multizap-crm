@@ -1,5 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
+import multipart from '@fastify/multipart';
+import type { StorageDriver } from '@multizap/storage';
+import type { ImportQueue } from './lib/queues';
+import { contactRoutes } from './modules/contacts/routes';
+import { importRoutes } from './modules/imports/routes';
 import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@multizap/database';
 import type { AppConfig } from './config';
@@ -19,6 +24,8 @@ declare module 'fastify' {
     redis: Redis | null;
     config: AppConfig;
     gateway: GatewayClient | null;
+    storage: StorageDriver | null;
+    importQueue: ImportQueue | null;
   }
 }
 
@@ -27,6 +34,8 @@ export interface BuildDeps {
   prisma: PrismaClient;
   redis: Redis | null;
   gateway?: GatewayClient | null;
+  storage?: StorageDriver | null;
+  importQueue?: ImportQueue | null;
   logger?: boolean;
 }
 
@@ -35,6 +44,8 @@ export async function buildApp({
   prisma,
   redis,
   gateway = null,
+  storage = null,
+  importQueue = null,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -61,8 +72,13 @@ export async function buildApp({
   app.decorate('redis', redis);
   app.decorate('config', config);
   app.decorate('gateway', gateway);
+  app.decorate('storage', storage);
+  app.decorate('importQueue', importQueue);
 
   await app.register(sensible);
+  await app.register(multipart, {
+    limits: { fileSize: config.maxImportBytes, files: 1, fields: 5 },
+  });
   await app.register(securityPlugin, { webOrigin: config.webOrigin });
   await app.register(authPlugin, { sessionIdleMs: config.sessionIdleMs });
 
@@ -102,6 +118,8 @@ export async function buildApp({
   await app.register(accountRoutes);
   await app.register(notificationRoutes);
   await app.register(dashboardRoutes);
+  await app.register(contactRoutes);
+  await app.register(importRoutes);
 
   return app;
 }

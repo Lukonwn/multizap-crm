@@ -39,7 +39,7 @@ export function StatCard({
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex min-h-8 items-start justify-between gap-3">
         <p className="text-xs font-medium text-muted">{label}</p>
         {Icon && (
           <span className={cn('grid h-8 w-8 place-items-center rounded-lg', iconTones[tone])}>

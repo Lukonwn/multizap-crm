@@ -92,3 +92,29 @@ Painel ──POST /accounts/:id/pairing──▶ API ──fila BullMQ "gateway-
 | Sessão substituída (440)           | `ATTENTION` + notificação. Reconexão só manual                                                                 |
 | Acesso recusado (403)              | `ATTENTION` + notificação crítica. Reconexão só manual                                                         |
 | QR expirado                        | `NOT_CONFIGURED` (`pairing_expired`)                                                                           |
+
+## Contatos e importações (Fase 3)
+
+**Isolamento.** Todas as rotas seguem o padrão `/accounts/:accountId/(contacts|tags|imports)/...`. Toda consulta usa o `accountId` do caminho, e um recurso de outra instância responde 404. O mesmo telefone pode existir em várias instâncias (`UNIQUE (account_id, phone_e164)`), sempre como registros independentes. Etiquetas também pertencem à instância.
+
+**Consentimento e descadastramento.**
+
+- `consent_events` registra cada autorização ou revogação, com origem e evidência.
+- `opt_outs` bloqueia o telefone **por instância** e continua valendo depois que o contato é excluído ou reimportado.
+- Reverter um descadastro exige um novo consentimento documentado.
+- Uma importação nunca reativa um consentimento revogado.
+
+**Importação (10 etapas):**
+
+| Etapa                                      | Onde                                                                                                              |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| 1–2. Arquivo e instância de destino        | `POST /accounts/:id/imports` (multipart, streaming até o bucket, SHA-256)                                         |
+| 3. Detecção de colunas                     | `sniff`: codificação (UTF-8/Windows-1252), delimitador, cabeçalho, amostra                                        |
+| 4. Mapeamento                              | painel → `POST …/analyze` (telefone, nome, etiquetas, observações, país, consentimento, política para existentes) |
+| 5–8. Prévia, duplicados, inválidos, resumo | worker `analyze`: classifica **todas** as linhas em `import_rows` e gera o CSV de rejeitados. Nada é importado    |
+| 9. Confirmação                             | `POST …/confirm`: transição atômica `ANALYZED → CONFIRMED`                                                        |
+| 10. Importação                             | worker `run`: lotes transacionais de 500 linhas                                                                   |
+
+- **Recuperação de falhas:** cada lote marca suas linhas como `IMPORTED` na mesma transação que cria os contatos. Uma queda ou nova tentativa (BullMQ, 3 tentativas com backoff) continua das linhas ainda `VALID`, sem duplicar.
+- **Prevenção de importação duplicada:** um arquivo com o mesmo hash não pode ser reenviado para a mesma instância enquanto houver importação ativa ou concluída.
+- **Validação estrutural apenas:** formato, DDD e tamanho, via libphonenumber. O sistema não consulta se o número tem conta WhatsApp.

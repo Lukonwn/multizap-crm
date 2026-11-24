@@ -21,7 +21,7 @@ describe('normalizePhone', () => {
     expect(normalizePhone('00351912345678')).toMatchObject({ ok: true, e164: '+351912345678' });
   });
   it('rejeita números incompletos ou vazios', () => {
-    expect(normalizePhone('12345')).toEqual({ ok: false, reason: 'invalid' });
+    expect(normalizePhone('12345')).toEqual({ ok: false, reason: 'too_short' });
     expect(normalizePhone('  ')).toEqual({ ok: false, reason: 'empty' });
   });
   it('extrai dígitos', () => {

@@ -66,6 +66,22 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+### Armazenamento (multizap-api e multizap-worker)
+
+Crie um **Railway Bucket** para os arquivos e configure **nos dois serviços**:
+
+| Variável                                                    | Valor                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------- |
+| `STORAGE_DRIVER`                                            | `s3`                                                                |
+| `STORAGE_S3_ENDPOINT`                                       | endpoint do bucket (variável de referência do Bucket na Railway)    |
+| `STORAGE_S3_REGION`                                         | região do bucket (ou `auto`)                                        |
+| `STORAGE_S3_BUCKET`                                         | nome do bucket                                                      |
+| `STORAGE_S3_ACCESS_KEY_ID` / `STORAGE_S3_SECRET_ACCESS_KEY` | credenciais do bucket                                               |
+| `STORAGE_S3_FORCE_PATH_STYLE`                               | `true` se o endpoint exigir _path-style_ (confira na aba do Bucket) |
+| `MAX_IMPORT_MB`                                             | `100` (apenas API; opcional)                                        |
+
+Em produção, a API e o worker **recusam iniciar** com armazenamento local, porque o disco do container é apagado a cada deploy. O `/health/ready` da API inclui a verificação do bucket.
+
 ## Rede
 
 - Só o **multizap-web** precisa de domínio público.

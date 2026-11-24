@@ -116,7 +116,7 @@ export default function DashboardPage() {
           value={formatNumber(d.contacts.total)}
           icon={Users}
           tone="neutral"
-          hint="Cadastro na Fase 3"
+          hint="Em todas as instâncias"
         />
         <StatCard
           label="Com consentimento"

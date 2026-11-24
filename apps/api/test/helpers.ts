@@ -5,14 +5,24 @@ import { hashPassword } from '@multizap/shared/password';
 import { CSRF_COOKIE, SESSION_COOKIE } from '@multizap/shared';
 import { buildApp } from '../src/app';
 import { GatewayClient } from '../src/lib/gateway';
+import { ImportQueue } from '../src/lib/queues';
+import { LocalStorage } from '@multizap/storage';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadConfig } from '../src/config';
 
 export const WEB_ORIGIN = 'http://localhost:3000';
 export const ADMIN = { email: 'admin@multizap.local', password: 'Senha-Inicial-123' };
 
-export async function setupTestApp(
-  env: Record<string, string> = {},
-): Promise<{ app: FastifyInstance; prisma: PrismaClient; redis: Redis; gateway: GatewayClient }> {
+export async function setupTestApp(env: Record<string, string> = {}): Promise<{
+  app: FastifyInstance;
+  prisma: PrismaClient;
+  redis: Redis;
+  gateway: GatewayClient;
+  storage: LocalStorage;
+  importQueue: ImportQueue;
+}> {
   const url = process.env.TEST_DATABASE_URL!;
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -27,10 +37,23 @@ export async function setupTestApp(
   await redis.connect();
   // Prefixo próprio: a fila de testes nunca é consumida por um gateway real.
   const gateway = new GatewayClient(config.redisUrl!, redis, 'mztest');
-  const app = await buildApp({ config, prisma, redis, gateway, logger: false });
-  app.addHook('onClose', () => gateway.close());
+  const storage = new LocalStorage(mkdtempSync(join(tmpdir(), 'mz-api-')));
+  const importQueue = new ImportQueue(config.redisUrl!, 'mztest');
+  const app = await buildApp({
+    config,
+    prisma,
+    redis,
+    gateway,
+    storage,
+    importQueue,
+    logger: false,
+  });
+  app.addHook('onClose', async () => {
+    await gateway.close();
+    await importQueue.close();
+  });
   await app.ready();
-  return { app, prisma, redis, gateway };
+  return { app, prisma, redis, gateway, storage, importQueue };
 }
 
 export async function resetDb(prisma: PrismaClient) {
@@ -82,4 +105,17 @@ export function sessionFrom(cookies: { name: string; value: string }[]): Session
 
 export function authed(s: Session, withCsrf = true) {
   return { cookie: s.cookie, origin: WEB_ORIGIN, ...(withCsrf && { 'x-csrf-token': s.csrf }) };
+}
+
+/** Corpo multipart/form-data com um único arquivo. */
+export function multipart(fileName: string, content: Buffer | string) {
+  const boundary = `----mz${Date.now()}`;
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+    ),
+    Buffer.isBuffer(content) ? content : Buffer.from(content),
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
 }

@@ -56,6 +56,7 @@ enum ConsentAction {
 
 enum ImportStatus {
   UPLOADED
+  ANALYZING
   ANALYZED
   CONFIRMED
   PROCESSING
@@ -302,6 +303,7 @@ model Contact {
   @@unique([accountId, phoneE164])
   @@index([accountId, consentStatus])
   @@index([accountId, createdAt])
+  @@index([accountId, name])
   @@map("contacts")
 }
 
@@ -383,7 +385,12 @@ model Import {
   validRows       Int          @default(0) @map("valid_rows")
   duplicateRows   Int          @default(0) @map("duplicate_rows")
   invalidRows     Int          @default(0) @map("invalid_rows")
+  optedOutRows    Int          @default(0) @map("opted_out_rows")
+  existingRows    Int          @default(0) @map("existing_rows")
   importedRows    Int          @default(0) @map("imported_rows")
+  updatedRows     Int          @default(0) @map("updated_rows")
+  skippedRows     Int          @default(0) @map("skipped_rows")
+  processedRows   Int          @default(0) @map("processed_rows")
   rejectedFileKey String?      @map("rejected_file_key")
   error           String?
   confirmedAt     DateTime?    @map("confirmed_at")
@@ -409,6 +416,10 @@ model ImportRow {
   phoneE164 String?         @map("phone_e164")
   status    ImportRowStatus
   reason    String?
+  /// Contato já existente na instância com o mesmo telefone (duplicado na base).
+  existingContactId String? @map("existing_contact_id") @db.Uuid
+  tags      String[]        @default([])
+  notes     String?
   contactId String?         @map("contact_id") @db.Uuid
 
   import  Import   @relation(fields: [importId], references: [id], onDelete: Cascade)

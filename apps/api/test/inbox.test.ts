@@ -227,4 +227,44 @@ describe('central de mensagens', () => {
       (await app.inject({ method: 'GET', url: `/conversations/${stored}/photo` })).statusCode,
     ).toBe(401);
   });
+
+  it('serve áudios e imagens com o tipo de conteúdo certo e isolados em sandbox', async () => {
+    const conv = await prisma.conversation.create({
+      data: { accountId: A, remoteJid: '5511987654321@s.whatsapp.net' },
+    });
+    const mk = async (id: string, key: string, type: string) => {
+      await storage.put(key, Buffer.from([1, 2, 3]));
+      return prisma.message.create({
+        data: {
+          accountId: A,
+          conversationId: conv.id,
+          providerMessageId: id,
+          direction: 'INBOUND',
+          type,
+          mediaKey: key,
+          status: 'RECEIVED',
+          sentAt: new Date(),
+        },
+      });
+    };
+    const ogg = await mk('au1', `media/${A}/au1.ogg`, 'audio');
+    const m4a = await mk('au2', `media/${A}/au2.m4a`, 'audio');
+    const jpg = await mk('im1', `media/${A}/im1.jpg`, 'image');
+    const types = async (id: string) =>
+      (await req('GET', `/messages/${id}/media`)).headers['content-type'];
+    expect(await types(ogg.id)).toBe('audio/ogg');
+    expect(await types(m4a.id)).toBe('audio/mp4');
+    expect(await types(jpg.id)).toBe('image/jpeg');
+    const r = await req('GET', `/messages/${ogg.id}/media`);
+    expect(r.headers['content-security-policy']).toContain('sandbox');
+    expect([...r.rawPayload]).toEqual([1, 2, 3]);
+    const list = (await req('GET', `/conversations/${conv.id}/messages`)).json().items;
+    expect(list.find((x: { id: string }) => x.id === ogg.id)).toMatchObject({
+      type: 'audio',
+      hasMedia: true,
+    });
+    expect((await app.inject({ method: 'GET', url: `/messages/${ogg.id}/media` })).statusCode).toBe(
+      401,
+    );
+  });
 });

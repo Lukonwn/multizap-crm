@@ -49,6 +49,10 @@ export interface IdentityUpdate {
   verifiedName?: string;
 }
 
+/** Texto mostrado enquanto o celular ainda não reenviou o conteúdo de uma mensagem. */
+export const PENDING_CONTENT_TEXT =
+  'Aguardando o conteúdo da mensagem (o celular precisa reenviá-la)…';
+
 export type IncomingMessageType =
   'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'other';
 
@@ -68,6 +72,10 @@ export interface IncomingMessage {
   fileName?: string;
   /** Nome técnico do tipo, quando não é um dos tipos tratados. */
   kind?: string;
+  /** Conteúdo ainda não recebido: será substituído quando o WhatsApp reenviar a mensagem. */
+  pending?: boolean;
+  /** Duração de áudios, em segundos. */
+  seconds?: number;
   /** Baixa a mídia (somente imagens são armazenadas). */
   download?: () => Promise<Buffer>;
 }

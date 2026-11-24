@@ -18,8 +18,14 @@ No primeiro teste com um número real, a Central mostrou conversas como "Contato
 7. **Agenda do aparelho** (Contatos → Agenda do aparelho): lista, por instância, o que o WhatsApp entregou (nome da agenda, perfil, telefone), com pesquisa. O administrador escolhe quem importar para Contatos; a importação pede confirmação, grava origem "Agenda do aparelho conectado", **consentimento PENDENTE** (nunca concedido), mantém descadastrados como descadastrados e não altera telefones que já existem. Fica na auditoria.
 8. **Diagnóstico:** cada sincronização inicial gera o evento "Sincronização do WhatsApp" (System Health → Eventos) com o número de conversas, mensagens, contatos e correspondências LID recebidos; uma falha ao registrar identidades nunca impede a gravação da mensagem.
 
+9. **Mensagens de empresa** (modelos, interativas, botões e listas) passam a mostrar título, texto, rodapé e os nomes dos botões, como texto comum.
+10. **Mensagem reenviada pelo celular:** quando o WhatsApp não consegue abrir o conteúdo, a biblioteca grava um marcador ("placeholder") e pede ao celular que reenvie; o conteúdo real chega depois **com o mesmo ID**. Antes, a repetição era ignorada e o marcador ficava para sempre. Agora a mensagem já gravada é atualizada (tipo, texto e prévia da conversa), sem duplicar nem alterar o contador de não lidas. Um "SAIR" que chegue assim também descadastra o contato.
+11. **Áudios** (e imagens) são guardados no bucket e tocados na própria Central. Ao vivo, na hora; do histórico, em uma fila em segundo plano (2 por vez, 25 s por arquivo, até 8 MB por áudio), para não atrasar a sincronização. Mídia antiga que o WhatsApp já removeu não pode ser baixada: a mensagem continua, sem o arquivo. Vídeos, documentos e figurinhas continuam só identificados.
+
 ## Limites conhecidos
 
 - O que o WhatsApp entrega depende dele: ao vincular, o aparelho envia o histórico recente e a agenda **uma vez**. Quem vinculou antes desta correção pode precisar **desconectar e parear de novo** para receber os nomes da agenda.
 - Quantas conversas aparecem na Central é decidido pelo WhatsApp no pareamento (`syncFullHistory` está desligado, ver ADR 0004).
 - Conversas de pessoas que o WhatsApp não identifica continuam sem nome (nunca é inventado).
+- Mensagens gravadas antes desta correção só são atualizadas quando o WhatsApp as entrega de novo (por exemplo, ao parear outra vez): o conteúdo bruto não é guardado.
+- Áudio em formato Ogg/Opus não toca no Safari mais antigo; os demais navegadores tocam.

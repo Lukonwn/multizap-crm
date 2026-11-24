@@ -90,6 +90,8 @@ function OutStatus({ status }: { status: string }) {
 function Bubble({ m }: { m: MessageDTO }) {
   const out = m.direction === 'OUTBOUND';
   const label = m.type !== 'text' ? MESSAGE_TYPE_LABEL[m.type] : null;
+  // "Outro tipo" com descrição (enquete, evento, aguardando conteúdo...) mostra só a descrição.
+  const showLabel = label && !m.hasMedia && !(m.type === 'other' && m.body);
   return (
     <div className={cn('flex', out ? 'justify-end' : 'justify-start')}>
       <div
@@ -101,7 +103,17 @@ function Bubble({ m }: { m: MessageDTO }) {
         {m.fromCampaign && (
           <p className="mb-1 text-[10px] uppercase tracking-wider text-accent">Campanha</p>
         )}
-        {m.hasMedia && (
+        {m.hasMedia && m.type === 'audio' && (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <audio
+            src={`/api/messages/${m.id}/media`}
+            controls
+            preload="none"
+            className="mb-1 h-10 w-64 max-w-full"
+            aria-label="Mensagem de áudio"
+          />
+        )}
+        {m.hasMedia && m.type !== 'audio' && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`/api/messages/${m.id}/media`}
@@ -110,7 +122,11 @@ function Bubble({ m }: { m: MessageDTO }) {
             loading="lazy"
           />
         )}
-        {label && !m.hasMedia && <p className="text-xs italic text-muted">[{label}]</p>}
+        {showLabel && (
+          <p className="text-xs italic text-muted">
+            [{label}]{m.type === 'audio' && ' arquivo indisponível (pode ter expirado no WhatsApp)'}
+          </p>
+        )}
         {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
         <p className="mt-1 flex items-center justify-end gap-2 text-[10px] text-subtle">
           {new Date(m.sentAt).toLocaleString('pt-BR', {

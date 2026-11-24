@@ -25,6 +25,24 @@ const convInclude = {
 } satisfies Prisma.ConversationInclude;
 type ConvRow = Prisma.ConversationGetPayload<{ include: typeof convInclude }>;
 
+const MEDIA_TYPES: Record<string, string> = {
+  webp: 'image/webp',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  ogg: 'audio/ogg',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  amr: 'audio/amr',
+  wav: 'audio/wav',
+};
+
+/** Tipo de conteúdo pela extensão da chave (só tipos de imagem e áudio conhecidos). */
+export function mediaContentType(key: string): string {
+  return MEDIA_TYPES[key.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
+}
+
 function phoneOf(c: ConvRow): string | null {
   if (c.contact?.phoneE164) return c.contact.phoneE164;
   if (c.phoneE164) return c.phoneE164;
@@ -278,14 +296,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     if (!m?.mediaKey) throw Errors.notFound('Mídia não disponível.');
     if (!app.storage) throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Armazenamento indisponível.');
     reply
-      .header(
-        'content-type',
-        m.mediaKey.endsWith('.webp')
-          ? 'image/webp'
-          : m.mediaKey.endsWith('.png')
-            ? 'image/png'
-            : 'image/jpeg',
-      )
+      .header('content-type', mediaContentType(m.mediaKey))
       .header('cache-control', 'private, max-age=86400')
       .header('content-security-policy', "default-src 'none'; sandbox");
     return reply.send(await app.storage.get(m.mediaKey));

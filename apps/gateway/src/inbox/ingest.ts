@@ -1,4 +1,4 @@
-import { recordSystemEvent, type PrismaClient } from '@multizap/database';
+import { recordSystemEvent, type Message, type PrismaClient } from '@multizap/database';
 import { isOptOutMessage, MESSAGE_TYPE_LABEL } from '@multizap/shared';
 import type { StorageDriver } from '@multizap/storage';
 import type { IncomingMessage } from '../session/types';
@@ -7,7 +7,28 @@ import { IdentityService, isLidJid } from './identity';
 type Log = (msg: string, extra?: Record<string, unknown>) => void;
 
 const HISTORY_WINDOW_MS = 30 * 24 * 3600 * 1000;
-const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const MEDIA_TIMEOUT_MS = 25_000;
+const MEDIA_CONCURRENCY = 2;
+const MEDIA_QUEUE_MAX = 400;
+
+type MediaJob = { accountId: string; messageId: string; m: IncomingMessage };
+
+/** Só imagens e áudios são guardados (voz e fotos); demais tipos aparecem identificados. */
+const isStorableMedia = (m: Pick<IncomingMessage, 'type' | 'download'>) =>
+  (m.type === 'image' || m.type === 'audio') && !!m.download;
+
+function mediaExt(m: Pick<IncomingMessage, 'type' | 'mimetype'>): string {
+  if (m.type === 'image') return 'jpg';
+  const t = (m.mimetype ?? '').toLowerCase();
+  if (t.includes('mpeg')) return 'mp3';
+  if (t.includes('mp4') || t.includes('m4a')) return 'm4a';
+  if (t.includes('aac')) return 'aac';
+  if (t.includes('amr')) return 'amr';
+  if (t.includes('wav')) return 'wav';
+  return 'ogg';
+}
 
 export function previewOf(m: Pick<IncomingMessage, 'type' | 'text'>): string {
   // "other" com descrição (enquete, álbum...) mostra só a descrição.
@@ -23,6 +44,8 @@ export function previewOf(m: Pick<IncomingMessage, 'type' | 'text'>): string {
  */
 export class InboxIngest {
   private readonly unknownKinds = new Set<string>();
+  private readonly mediaQueue: MediaJob[] = [];
+  private mediaActive = 0;
   readonly identities: IdentityService;
 
   constructor(
@@ -50,7 +73,10 @@ export class InboxIngest {
     const exists = await this.prisma.message.findUnique({
       where: { accountId_providerMessageId: { accountId, providerMessageId: original.id } },
     });
-    if (exists) return;
+    if (exists) {
+      await this.upgrade(accountId, exists, original, historical);
+      return;
+    }
     let m = original;
 
     // Identidade: registra a correspondência LID ↔ telefone e o nome de perfil, e resolve
@@ -102,20 +128,18 @@ export class InboxIngest {
       });
     }
 
+    // Ao vivo: baixa na hora. Histórico: vai para uma fila (não trava a sincronização).
     let mediaKey: string | null = null;
-    if (m.type === 'image' && m.download && this.storage && !historical) {
+    if (isStorableMedia(m) && this.storage && !historical) {
       try {
-        const buf = await m.download();
-        if (buf.length <= MAX_MEDIA_BYTES) {
-          mediaKey = `media/${accountId}/${m.id.replace(/[^\w-]/g, '_')}.jpg`;
-          await this.storage.put(mediaKey, buf, { contentType: m.mimetype ?? 'image/jpeg' });
-        }
+        mediaKey = await this.fetchMedia(accountId, m);
       } catch (err) {
         this.log('Mídia não baixada', { accountId, id: m.id, err: String(err) });
       }
     }
 
     const preview = previewOf(m);
+    let createdId = '';
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.conversation.findUnique({
         where: { accountId_remoteJid: { accountId, remoteJid: m.chatJid } },
@@ -152,7 +176,7 @@ export class InboxIngest {
               status: live ? (m.fromMe ? 'ANSWERED' : 'PENDING') : 'OPEN',
             },
           });
-      await tx.message.create({
+      const created = await tx.message.create({
         data: {
           accountId,
           conversationId: conv.id,
@@ -165,15 +189,33 @@ export class InboxIngest {
           sentAt: m.timestamp,
         },
       });
+      createdId = created.id;
     });
+    if (historical && isStorableMedia(m)) this.enqueueMedia({ accountId, messageId: createdId, m });
 
-    // Descadastramento por palavra-chave ("SAIR"), somente em mensagens novas do contato.
+    await this.maybeOptOut(m, contact, historical);
+  }
+
+  /** Descadastramento por palavra-chave ("SAIR"), somente em mensagens novas do contato. */
+  private async maybeOptOut(
+    m: IncomingMessage,
+    contact: {
+      id: string;
+      accountId: string;
+      phoneE164: string;
+      name: string | null;
+      optedOutAt: Date | null;
+    } | null,
+    historical: boolean,
+  ) {
     if (!historical && !m.fromMe && contact && isOptOutMessage(m.text) && !contact.optedOutAt) {
       await this.prisma.$transaction([
         this.prisma.optOut.upsert({
-          where: { accountId_phoneE164: { accountId, phoneE164: contact.phoneE164 } },
+          where: {
+            accountId_phoneE164: { accountId: contact.accountId, phoneE164: contact.phoneE164 },
+          },
           create: {
-            accountId,
+            accountId: contact.accountId,
             phoneE164: contact.phoneE164,
             reason: `Respondeu "${m.text?.trim()}"`,
             source: 'whatsapp_keyword',
@@ -186,7 +228,7 @@ export class InboxIngest {
         }),
         this.prisma.consentEvent.create({
           data: {
-            accountId,
+            accountId: contact.accountId,
             contactId: contact.id,
             action: 'REVOKED',
             source: 'Pedido de descadastro pelo WhatsApp',
@@ -195,7 +237,7 @@ export class InboxIngest {
         }),
         this.prisma.systemNotification.create({
           data: {
-            accountId,
+            accountId: contact.accountId,
             severity: 'INFO',
             category: 'SYSTEM',
             title: 'Contato pediu descadastramento',
@@ -204,5 +246,89 @@ export class InboxIngest {
         }),
       ]);
     }
+  }
+
+  /**
+   * O WhatsApp reenvia, com o mesmo ID, mensagens cujo conteúdo não chegou (marcador
+   * "aguardando") ou que a Central ainda não entendia. Quando o conteúdo real chega,
+   * a mensagem já gravada é atualizada em vez de ser ignorada como repetida.
+   */
+  private async upgrade(
+    accountId: string,
+    stored: Message,
+    m: IncomingMessage,
+    historical: boolean,
+  ) {
+    if (stored.type !== 'other' || m.pending) return;
+    const body = m.text ?? (m.fileName ? m.fileName : null);
+    if (m.type === 'other' && body === stored.body) return;
+    await this.prisma.message.update({ where: { id: stored.id }, data: { type: m.type, body } });
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: stored.conversationId },
+    });
+    if (conv?.lastMessageAt && conv.lastMessageAt.getTime() === stored.sentAt.getTime())
+      await this.prisma.conversation.update({
+        where: { id: conv.id },
+        data: { lastMessagePreview: previewOf(m) },
+      });
+    if (isStorableMedia(m) && !stored.mediaKey)
+      this.enqueueMedia({ accountId, messageId: stored.id, m });
+    if (conv?.contactId) {
+      const contact = await this.prisma.contact.findUnique({ where: { id: conv.contactId } });
+      await this.maybeOptOut(m, contact, historical);
+    }
+  }
+
+  // ─── Mídia (áudios e imagens) ───
+
+  /** Baixa a mídia e guarda no bucket. Retorna a chave, ou null se for grande demais. */
+  private async fetchMedia(accountId: string, m: IncomingMessage): Promise<string | null> {
+    if (!this.storage || !m.download) return null;
+    const buf = await Promise.race([
+      m.download(),
+      new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error('tempo esgotado')), MEDIA_TIMEOUT_MS).unref(),
+      ),
+    ]);
+    if (buf.length > (m.type === 'audio' ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES)) return null;
+    const key = `media/${accountId}/${m.id.replace(/[^\w-]/g, '_')}.${mediaExt(m)}`;
+    await this.storage.put(key, buf, {
+      contentType: m.mimetype ?? (m.type === 'audio' ? 'audio/ogg' : 'image/jpeg'),
+    });
+    return key;
+  }
+
+  private enqueueMedia(job: MediaJob) {
+    if (!this.storage || !job.messageId || this.mediaQueue.length >= MEDIA_QUEUE_MAX) return;
+    this.mediaQueue.push(job);
+    this.pumpMedia();
+  }
+
+  private pumpMedia() {
+    while (this.mediaActive < MEDIA_CONCURRENCY && this.mediaQueue.length) {
+      const job = this.mediaQueue.shift()!;
+      this.mediaActive++;
+      void this.runMedia(job).finally(() => {
+        this.mediaActive--;
+        this.pumpMedia();
+      });
+    }
+  }
+
+  private async runMedia(job: MediaJob) {
+    try {
+      const key = await this.fetchMedia(job.accountId, job.m);
+      if (key)
+        await this.prisma.message.update({ where: { id: job.messageId }, data: { mediaKey: key } });
+    } catch (err) {
+      // Mídia antiga pode ter saído do servidor do WhatsApp: a mensagem continua, sem o arquivo.
+      this.log('Mídia do histórico não baixada', { id: job.m.id, err: String(err).slice(0, 120) });
+    }
+  }
+
+  /** Espera a fila de downloads esvaziar (usado nos testes). */
+  async mediaIdle(): Promise<void> {
+    while (this.mediaActive > 0 || this.mediaQueue.length > 0)
+      await new Promise((r) => setTimeout(r, 10));
   }
 }

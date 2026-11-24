@@ -91,7 +91,7 @@ export class BaileysFactory implements ConnectionFactory {
         const alt = (m.key as { remoteJidAlt?: string }).remoteJidAlt;
         const n = normalizeMessage(m, alt ? null : await pnForLid(m.key?.remoteJid));
         if (!n) continue;
-        if (n.type === 'image') {
+        if (n.type === 'image' || n.type === 'audio') {
           n.download = () =>
             downloadMediaMessage(
               m,

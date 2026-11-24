@@ -417,3 +417,19 @@
 **Pendências**
 
 - Depende do que o WhatsApp entrega ao aparelho. Quem já estava vinculado pode precisar parear de novo para receber os nomes da agenda. Validar com o número real.
+
+## Correção: mensagens de empresa, mensagens pendentes e áudios ✅
+
+**Problema** (teste real): áudios apareciam só como "[Áudio]", modelos de empresa como "(templateMessage)" e algumas mensagens como "(placeholderMessage)".
+
+**Corrigido**
+
+- Modelos, mensagens interativas, botões e listas mostram o texto, o título, o rodapé e os botões.
+- O marcador "placeholder" é substituído pelo conteúdo real quando o celular o reenvia (mesmo ID), sem duplicar mensagens.
+- Áudios são guardados e tocados na Central (histórico em fila em segundo plano).
+- 12 testes novos.
+
+**Pendências**
+
+- Mensagens já gravadas só são atualizadas quando o WhatsApp as entrega de novo.
+- Vídeos, documentos e figurinhas continuam só identificados.

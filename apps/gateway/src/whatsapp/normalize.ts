@@ -7,9 +7,10 @@ import {
   isPnUser,
   jidNormalizedUser,
   normalizeMessageContent,
+  type proto,
   type WAMessage,
 } from 'baileys';
-import type { IncomingMessage } from '../session/types';
+import { PENDING_CONTENT_TEXT, type IncomingMessage } from '../session/types';
 
 const IGNORED = new Set([
   'protocolMessage',
@@ -20,6 +21,83 @@ const IGNORED = new Set([
   'keepInChatMessage',
   'encReactionMessage',
 ]);
+
+const joinLines = (parts: (string | null | undefined)[]) =>
+  parts
+    .map((p) => p?.trim())
+    .filter((p): p is string => !!p)
+    .join('\n');
+
+const buttonsLine = (labels: (string | null | undefined)[]) => {
+  const l = labels.map((x) => x?.trim()).filter((x): x is string => !!x);
+  return l.length ? `Botões: ${l.join(' · ')}` : null;
+};
+
+/** Texto de botões "nativos" (interactiveMessage): o rótulo vem em JSON. */
+function nativeFlowLabels(i: proto.Message.IInteractiveMessage): string[] {
+  return (i.nativeFlowMessage?.buttons ?? []).flatMap((b) => {
+    try {
+      const j = JSON.parse(b.buttonParamsJson ?? '{}') as { display_text?: string };
+      return j.display_text ? [j.display_text] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function interactiveText(i: proto.Message.IInteractiveMessage): string {
+  return joinLines([
+    i.header?.title,
+    i.header?.subtitle,
+    i.body?.text,
+    i.footer?.text,
+    buttonsLine(nativeFlowLabels(i)),
+  ]);
+}
+
+function hydratedText(h: proto.Message.TemplateMessage.IHydratedFourRowTemplate): string {
+  return joinLines([
+    h.hydratedTitleText,
+    h.hydratedContentText,
+    h.hydratedFooterText,
+    buttonsLine(
+      (h.hydratedButtons ?? []).map(
+        (b) =>
+          b.quickReplyButton?.displayText ?? b.urlButton?.displayText ?? b.callButton?.displayText,
+      ),
+    ),
+  ]);
+}
+
+/** Conteúdo de mensagens de empresa (modelos, botões e listas), quando há texto. */
+function richText(content: proto.IMessage, kind: string): string | null {
+  let text = '';
+  if (kind === 'templateMessage') {
+    const t = content.templateMessage;
+    const h = t?.hydratedTemplate ?? t?.hydratedFourRowTemplate;
+    if (h) text = hydratedText(h);
+    else if (t?.interactiveMessageTemplate) text = interactiveText(t.interactiveMessageTemplate);
+  } else if (kind === 'interactiveMessage' && content.interactiveMessage) {
+    text = interactiveText(content.interactiveMessage);
+  } else if (kind === 'buttonsMessage' && content.buttonsMessage) {
+    const b = content.buttonsMessage;
+    text = joinLines([
+      b.text,
+      b.contentText,
+      b.footerText,
+      buttonsLine((b.buttons ?? []).map((x) => x.buttonText?.displayText)),
+    ]);
+  } else if (kind === 'listMessage' && content.listMessage) {
+    const l = content.listMessage;
+    text = joinLines([
+      l.title,
+      l.description,
+      l.footerText,
+      l.buttonText ? `Lista: ${l.buttonText}` : null,
+    ]);
+  }
+  return text || null;
+}
 
 function pollName(content: NonNullable<ReturnType<typeof normalizeMessageContent>>): string {
   const c = content as Record<string, { name?: string } | undefined>;
@@ -93,7 +171,13 @@ export function normalizeMessage(m: WAMessage, resolvedPn?: string | null): Inco
     case 'ptvMessage':
       return { ...base, type: 'video', text: null };
     case 'audioMessage':
-      return { ...base, type: 'audio', text: null };
+      return {
+        ...base,
+        type: 'audio',
+        text: null,
+        mimetype: content.audioMessage?.mimetype ?? 'audio/ogg',
+        ...(content.audioMessage?.seconds != null && { seconds: content.audioMessage.seconds }),
+      };
     case 'documentMessage':
       return {
         ...base,
@@ -130,6 +214,18 @@ export function normalizeMessage(m: WAMessage, resolvedPn?: string | null): Inco
     case 'pollCreationMessageV2':
     case 'pollCreationMessageV3':
       return { ...base, type: 'other', text: `Enquete: ${pollName(content)}`, kind };
+    case 'templateMessage':
+    case 'interactiveMessage':
+    case 'buttonsMessage':
+    case 'listMessage': {
+      const text = richText(content, kind);
+      return text
+        ? { ...base, type: 'text', text }
+        : { ...base, type: 'other', text: `(${kind})`, kind };
+    }
+    // O WhatsApp entregou a mensagem sem o conteúdo e o celular reenvia depois (mesmo ID).
+    case 'placeholderMessage':
+      return { ...base, type: 'other', text: PENDING_CONTENT_TEXT, kind, pending: true };
     case 'albumMessage':
       return { ...base, type: 'other', text: 'Álbum de fotos e vídeos', kind };
     case 'eventMessage':

@@ -267,4 +267,116 @@ describe('central de mensagens', () => {
       401,
     );
   });
+
+  describe('nova conversa', () => {
+    const start = (accountId: string, phoneE164: string) =>
+      req('POST', `/accounts/${accountId}/conversations/start`, { phoneE164 });
+
+    it('abre a conversa com um número da agenda, sem criar contato nem enviar nada', async () => {
+      await prisma.waIdentity.create({
+        data: {
+          accountId: A,
+          jid: '5511955550000@s.whatsapp.net',
+          phoneE164: '+5511955550000',
+          savedName: 'Maria da Padaria',
+        },
+      });
+      const r = await start(A, '+5511955550000');
+      expect(r.statusCode).toBe(201);
+      const conv = r.json().conversation;
+      expect(conv).toMatchObject({
+        title: 'Maria da Padaria',
+        phoneE164: '+5511955550000',
+        accountId: A,
+      });
+      expect(await prisma.contact.count()).toBe(0);
+      expect(await prisma.message.count()).toBe(0);
+      expect(await prisma.auditLog.count({ where: { action: 'conversation.started' } })).toBe(1);
+      // conversa vazia não aparece na lista; a abertura direta funciona e permite responder
+      expect((await req('GET', '/conversations')).json().items).toHaveLength(0);
+      const open = (await req('GET', `/conversations/${conv.id}`)).json();
+      expect(open.reply).toEqual({ allowed: true, reason: null });
+      const sent = await req('POST', `/conversations/${conv.id}/messages`, {
+        text: 'Bom dia, Maria!',
+      });
+      expect(sent.statusCode).toBe(202);
+      expect(
+        await prisma.message.count({ where: { conversationId: conv.id, status: 'PENDING' } }),
+      ).toBe(1);
+    });
+
+    it('é idempotente, reaproveita conversa por LID e vincula contato do CRM existente', async () => {
+      const crm = await prisma.contact.create({
+        data: { accountId: A, phoneE164: '+5511955550001', name: 'Carlos CRM' },
+      });
+      const first = (await start(A, '+5511955550001')).json();
+      expect(first.created).toBe(true);
+      expect(first.conversation.contactName).toBe('Carlos CRM');
+      const again = await start(A, '+5511955550001');
+      expect(again.statusCode).toBe(200);
+      expect(again.json().conversation.id).toBe(first.conversation.id);
+      expect(await prisma.conversation.count()).toBe(1);
+      expect(await prisma.contact.count()).toBe(1);
+      expect((await prisma.conversation.findFirstOrThrow()).contactId).toBe(crm.id);
+
+      // conversa existente endereçada por LID
+      await prisma.waIdentity.create({
+        data: {
+          accountId: A,
+          jid: '5511955550002@s.whatsapp.net',
+          lid: '999@lid',
+          phoneE164: '+5511955550002',
+        },
+      });
+      const lidConv = await prisma.conversation.create({
+        data: { accountId: A, remoteJid: '999@lid', lastMessageAt: new Date() },
+      });
+      expect((await start(A, '+5511955550002')).json().conversation.id).toBe(lidConv.id);
+    });
+
+    it('isola por instância, valida o número e recusa aparelho apenas cadastrado', async () => {
+      const first = (await start(A, '+5511955550003')).json().conversation;
+      const other = (await start(B, '+5511955550003')).json().conversation;
+      expect(other.id).not.toBe(first.id);
+      expect(await prisma.conversation.count()).toBe(2);
+      expect((await start(A, '11955550003')).statusCode).toBe(400);
+      expect((await start(A, '+55abc')).statusCode).toBe(400);
+      const ext = await prisma.account.create({
+        data: { name: 'Celular', connectionType: 'EXTERNAL_DEVICE' },
+      });
+      expect((await start(ext.id, '+5511955550003')).json().error.code).toBe('NOT_WHATSAPP_WEB');
+      expect(
+        (await start('00000000-0000-0000-0000-000000000000', '+5511955550003')).statusCode,
+      ).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/accounts/${A}/conversations/start`,
+            headers: authed(s, false),
+            payload: { phoneE164: '+5511955550003' },
+          })
+        ).statusCode,
+      ).toBe(403);
+    });
+
+    it('descadastrado continua bloqueado, mesmo sem contato no CRM', async () => {
+      await prisma.optOut.create({
+        data: { accountId: A, phoneE164: '+5511955550004', source: 'x' },
+      });
+      const conv = (await start(A, '+5511955550004')).json().conversation;
+      const open = (await req('GET', `/conversations/${conv.id}`)).json();
+      expect(open.reply.allowed).toBe(false);
+      expect(open.reply.reason).toContain('descadastramento');
+      expect(
+        (await req('POST', `/conversations/${conv.id}/messages`, { text: 'oi' })).statusCode,
+      ).toBe(409);
+    });
+
+    it('bloqueia o envio com a instância desconectada', async () => {
+      const conv = (await start(A, '+5511955550005')).json().conversation;
+      await prisma.account.update({ where: { id: A }, data: { status: 'DISCONNECTED' } });
+      expect((await req('GET', `/conversations/${conv.id}`)).json().reply.allowed).toBe(false);
+    });
+  });
 });

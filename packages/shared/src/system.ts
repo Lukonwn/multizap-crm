@@ -179,6 +179,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'asset.deleted': 'Criativo excluído',
   'campaign.message_confirmed': 'Envio de campanha confirmado',
   'conversation.replied': 'Resposta enviada',
+  'conversation.started': 'Nova conversa iniciada',
   'conversation.closed': 'Conversa finalizada',
   'conversation.reopened': 'Conversa reaberta',
 };

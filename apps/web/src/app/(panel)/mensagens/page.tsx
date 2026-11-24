@@ -12,6 +12,7 @@ import {
   Info,
   MessagesSquare,
   Search,
+  SquarePen,
   Send,
   XCircle,
   ArrowLeft,
@@ -29,6 +30,7 @@ import {
 } from '@multizap/shared';
 import { Alert, Badge, Button, EmptyState, Input, Select, Spinner, cn } from '@multizap/ui';
 import { Avatar } from '@/components/inbox/avatar';
+import { NewChatModal } from '@/components/inbox/new-chat-modal';
 import { api } from '@/lib/api';
 import { useAccounts } from '@/lib/accounts';
 import { CONSENT_TONE, useContactsMutation } from '@/lib/contacts';
@@ -409,6 +411,8 @@ export default function InboxPage() {
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [newChat, setNewChat] = useState(false);
+  const qc = useQueryClient();
   useEffect(() => {
     const t = setTimeout(() => setQ(search), 300);
     return () => clearTimeout(t);
@@ -426,6 +430,9 @@ export default function InboxPage() {
         )}
       >
         <div className="space-y-2 border-b border-border p-3">
+          <Button className="w-full" size="sm" onClick={() => setNewChat(true)}>
+            <SquarePen className="h-3.5 w-3.5" aria-hidden /> Nova conversa
+          </Button>
           <Select
             value={accountId}
             onChange={(e) => setAccountId(e.target.value)}
@@ -556,6 +563,18 @@ export default function InboxPage() {
           <p className="text-sm text-subtle">Os dados do contato aparecem aqui.</p>
         )}
       </aside>
+      <NewChatModal
+        open={newChat}
+        onOpenChange={setNewChat}
+        initialAccountId={accountId}
+        onStarted={(c) => {
+          setAccountId(c.accountId);
+          setFilter('all');
+          setSearch('');
+          setSelected(c.id);
+          void qc.invalidateQueries({ queryKey: ['conversations'] });
+        }}
+      />
     </div>
   );
 }

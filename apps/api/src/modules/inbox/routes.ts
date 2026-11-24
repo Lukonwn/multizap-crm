@@ -10,6 +10,7 @@ import {
   type MessageDTO,
   type ReplyPermission,
 } from '@multizap/shared';
+import { requireAccount } from '../../lib/accounts';
 import { AppError, Errors } from '../../lib/errors';
 import { parse } from '../../lib/validate';
 import { audit } from '../audit/service';
@@ -86,10 +87,19 @@ export async function inboxRoutes(app: FastifyInstance) {
       return { allowed: false, reason: 'A instância não está conectada.' };
     if (await isOperationsPaused(prisma))
       return { allowed: false, reason: 'As operações estão pausadas globalmente.' };
-    if (c.contact?.optedOutAt) {
-      // Descadastrado só volta a receber resposta se escrever novamente depois do pedido.
+    // Descadastrado (no contato do CRM ou na lista de descadastros da instância).
+    const phone = phoneOf(c);
+    const optOut = phone
+      ? await prisma.optOut.findUnique({
+          where: { accountId_phoneE164: { accountId: c.accountId, phoneE164: phone } },
+          select: { createdAt: true },
+        })
+      : null;
+    const optedOutAt = c.contact?.optedOutAt ?? optOut?.createdAt ?? null;
+    if (optedOutAt) {
+      // Só volta a receber resposta se escrever novamente depois do pedido.
       const after = await prisma.message.count({
-        where: { conversationId: c.id, direction: 'INBOUND', sentAt: { gt: c.contact.optedOutAt } },
+        where: { conversationId: c.id, direction: 'INBOUND', sentAt: { gt: optedOutAt } },
       });
       if (!after)
         return {
@@ -113,6 +123,8 @@ export async function inboxRoutes(app: FastifyInstance) {
       req.query,
     );
     const where: Prisma.ConversationWhereInput = {
+      // Conversas abertas por "Nova conversa" só aparecem depois da primeira mensagem.
+      lastMessageAt: { not: null },
       ...(q.accountId && { accountId: q.accountId }),
       ...(q.filter === 'unread' && { unreadCount: { gt: 0 } }),
       ...(q.filter === 'pending' && { status: 'PENDING' }),
@@ -141,6 +153,76 @@ export async function inboxRoutes(app: FastifyInstance) {
       prisma.conversation.count({ where }),
     ]);
     return { items: rows.map(toConversationDTO), total };
+  });
+
+  /**
+   * "Nova conversa": abre (ou cria) a conversa individual com um número da instância,
+   * como no WhatsApp Web. Não envia nada, não cria contato do CRM e não altera
+   * consentimento; o envio segue as mesmas regras das respostas.
+   */
+  app.post('/accounts/:accountId/conversations/start', auth, async (req, reply) => {
+    const account = await requireAccount(app, req);
+    const { phoneE164 } = parse(
+      z.object({ phoneE164: z.string().regex(/^\+\d{8,15}$/, 'Telefone inválido.') }),
+      req.body,
+    );
+    const acc = await prisma.account.findUniqueOrThrow({
+      where: { id: account.id },
+      select: { connectionType: true },
+    });
+    if (acc.connectionType !== 'WHATSAPP_WEB')
+      throw new AppError(
+        409,
+        'NOT_WHATSAPP_WEB',
+        'Esta instância é apenas um aparelho cadastrado.',
+      );
+
+    const jid = `${phoneE164.slice(1)}@s.whatsapp.net`;
+    const identity = await prisma.waIdentity.findFirst({
+      where: { accountId: account.id, phoneE164 },
+    });
+    const existing = await prisma.conversation.findFirst({
+      where: {
+        accountId: account.id,
+        OR: [
+          { remoteJid: jid },
+          { phoneE164 },
+          ...(identity?.lid ? [{ remoteJid: identity.lid }] : []),
+        ],
+      },
+      include: convInclude,
+    });
+    if (existing) return { conversation: toConversationDTO(existing), created: false };
+
+    const contact = await prisma.contact.findUnique({
+      where: { accountId_phoneE164: { accountId: account.id, phoneE164 } },
+      select: { id: true, name: true },
+    });
+    const created = await prisma.conversation.create({
+      data: {
+        accountId: account.id,
+        remoteJid: jid,
+        phoneE164,
+        contactId: contact?.id ?? null,
+        title:
+          identity?.savedName ??
+          identity?.verifiedName ??
+          identity?.pushName ??
+          contact?.name ??
+          null,
+        status: 'OPEN',
+      },
+      include: convInclude,
+    });
+    await audit(prisma, req, {
+      action: 'conversation.started',
+      actorId: req.auth!.user.id,
+      entityType: 'conversation',
+      entityId: created.id,
+      accountId: account.id,
+    });
+    reply.code(201);
+    return { conversation: toConversationDTO(created), created: true };
   });
 
   app.get('/conversations/unread', auth, async () => ({

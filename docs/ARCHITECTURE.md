@@ -240,3 +240,7 @@ API GET /system/status ── banco, Redis, bucket, heartbeats, filas BullMQ, co
 ### Identidades, LID e fotos (correção pós-Fase 10)
 
 O WhatsApp endereça muitas conversas por LID. O gateway guarda em `wa_identities` os nomes e a correspondência LID ↔ telefone que o aparelho recebe, aplica nome, telefone e contato (sem criar contatos do CRM) às conversas, une duplicadas e busca a foto de perfil das conversas existentes, devagar e em pequeno número. Detalhes e limites em [ADR 0006](adr/0006-identidades-whatsapp-e-lid.md).
+
+### Nova conversa (Central de mensagens)
+
+O botão **Nova conversa** abre a lista de contatos de uma instância (aba "Celular": a agenda que o WhatsApp entregou ao aparelho; aba "Contatos (CRM)") e, ao escolher um, abre ou cria a conversa individual (`POST /accounts/:id/conversations/start`). Não envia nada, não cria contato do CRM e não altera consentimento; cada mensagem é escrita e enviada pelo administrador, uma a uma, pelo mesmo caminho das respostas. Valem as mesmas regras: instância conectada, sem pausa geral e, para descadastrados (no CRM ou na lista de descadastros da instância), só com nova mensagem do contato. Conversas ainda sem mensagens não aparecem na lista.

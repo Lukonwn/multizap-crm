@@ -433,3 +433,10 @@
 
 - Mensagens já gravadas só são atualizadas quando o WhatsApp as entrega de novo.
 - Vídeos, documentos e figurinhas continuam só identificados.
+
+## Nova conversa na Central de mensagens ✅
+
+- Botão **Nova conversa**, como no WhatsApp Web: escolhe a instância, vê os contatos do celular (ou do CRM), pesquisa e abre a conversa individual para escrever e enviar sem campanha.
+- Um envio por vez, sem seleção múltipla. Regras mantidas: instância conectada, pausa geral e descadastrados (agora também pela lista de descadastros da instância).
+- Auditoria da conversa iniciada; conversas vazias não poluem a lista.
+- 6 testes de API e 1 de ponta a ponta.

@@ -98,6 +98,16 @@ test('cadastra uma instância e um contato com consentimento', async () => {
   await expect(page.getByText('Cliente E2E')).toBeVisible();
 });
 
+test('Central de mensagens: "Nova conversa" abre a escolha de contatos da instância', async () => {
+  await page.goto('/mensagens');
+  await page.getByRole('button', { name: 'Nova conversa' }).click();
+  await expect(page.getByRole('heading', { name: 'Nova conversa' })).toBeVisible();
+  await expect(page.getByLabel('Instância da conversa')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Celular' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Nova conversa' })).toHaveCount(0);
+});
+
 test('higienizador processa uma lista e gera arquivo para download', async () => {
   await page.goto('/ferramentas/sanitize');
   await page.locator('input[type=file]').setInputFiles(resolve(__dirname, 'fixtures/lista.csv'));

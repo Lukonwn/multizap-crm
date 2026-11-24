@@ -7,6 +7,8 @@ import { audit } from '../audit/service';
 
 const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
+  /** Somente quem tem telefone (para iniciar conversa). */
+  withPhone: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
@@ -27,6 +29,7 @@ export async function deviceContactRoutes(app: FastifyInstance) {
     const digits = q.q?.replace(/\D/g, '') ?? '';
     const where: Prisma.WaIdentityWhereInput = {
       accountId: account.id,
+      ...(q.withPhone === 'true' && { phoneE164: { not: null } }),
       ...(q.q && {
         OR: [
           { savedName: { contains: q.q, mode: 'insensitive' } },
@@ -61,6 +64,14 @@ export async function deviceContactRoutes(app: FastifyInstance) {
         })
       ).map((c) => c.phoneE164),
     );
+    const optedOut = new Set(
+      (
+        await prisma.optOut.findMany({
+          where: { accountId: account.id, phoneE164: { in: phones } },
+          select: { phoneE164: true },
+        })
+      ).map((o) => o.phoneE164),
+    );
     return {
       items: rows.map((r) => ({
         id: r.id,
@@ -69,6 +80,7 @@ export async function deviceContactRoutes(app: FastifyInstance) {
         pushName: r.pushName,
         phoneE164: r.phoneE164,
         inCrm: !!r.phoneE164 && inCrm.has(r.phoneE164),
+        optedOut: !!r.phoneE164 && optedOut.has(r.phoneE164),
       })),
       total,
       stats: { identities: all, withPhone, withSavedName },

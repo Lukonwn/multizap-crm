@@ -148,4 +148,19 @@ describe('agenda do aparelho', () => {
     });
     expect(noCsrf.statusCode).toBe(403);
   });
+
+  it('filtra só quem tem telefone e informa descadastrados (para iniciar conversa)', async () => {
+    await prisma.optOut.create({
+      data: { accountId: A, phoneE164: '+5511900000002', source: 'x' },
+    });
+    const r = (await get(`/accounts/${A}/device-contacts?withPhone=true`)).json();
+    expect(r.total).toBe(3);
+    expect(r.items.every((i: { phoneE164: string | null }) => i.phoneE164)).toBe(true);
+    expect(
+      r.items.find((i: { phoneE164: string }) => i.phoneE164 === '+5511900000002').optedOut,
+    ).toBe(true);
+    expect(
+      r.items.find((i: { phoneE164: string }) => i.phoneE164 === '+5511900000001').optedOut,
+    ).toBe(false);
+  });
 });

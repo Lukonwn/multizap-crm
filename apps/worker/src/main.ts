@@ -2,6 +2,8 @@ import { Redis } from 'ioredis';
 import { Worker, type Job } from 'bullmq';
 import { getPrisma } from '@multizap/database';
 import {
+  AI_QUEUE,
+  GATEWAY_QUEUE,
   HEARTBEAT_KEYS,
   IMPORTS_QUEUE,
   TOOLS_QUEUE,
@@ -9,17 +11,21 @@ import {
   type ToolJobData,
   CAMPAIGNS_QUEUE,
   MAINTENANCE_QUEUE,
+  type AiInboundJob,
   type CampaignJob,
+  type GatewayCommand,
   type MaintenanceJob,
   type WorkerHeartbeat,
 } from '@multizap/shared';
 import { Queue } from 'bullmq';
+import { cipherFromEnv, type CredentialCipher } from '@multizap/shared/crypto';
 import { onShutdown, startHealthServer, startHeartbeat } from '@multizap/shared/runtime';
 import { backupStorageFromEnv, storageFromEnv } from '@multizap/storage';
 import { ImportProcessor } from './imports/processor';
 import { ToolJobProcessor } from './tools/processor';
 import { CampaignPreparer } from './campaigns/preparer';
 import { MetricsRollup } from './metrics/rollup';
+import { AiResponder } from './ai/responder';
 import {
   assertTimezone,
   isOperationsPaused,
@@ -114,6 +120,44 @@ toolWorker.on('failed', (job, err) => {
       details: { jobId: job.data.jobId },
     });
   }
+});
+
+// MultiZap AI: responde às mensagens recebidas (rascunho para revisão ou envio automático).
+// Falhas aqui ficam restritas ao módulo: o restante do worker não depende dele.
+let aiCipher: CredentialCipher | null = null;
+if (process.env.CREDENTIALS_MASTER_KEY) {
+  try {
+    aiCipher = cipherFromEnv();
+  } catch (err) {
+    log('CREDENTIALS_MASTER_KEY inválida: o MultiZap AI não conseguirá ler a chave da OpenRouter', {
+      err: String(err),
+    });
+  }
+} else {
+  log('CREDENTIALS_MASTER_KEY ausente: o MultiZap AI não responderá até ser configurada');
+}
+const gatewayQueue = new Queue<GatewayCommand>(GATEWAY_QUEUE, {
+  connection: redis.duplicate(),
+  prefix,
+  defaultJobOptions: { removeOnComplete: 200, removeOnFail: 500, attempts: 1 },
+});
+const responder = new AiResponder({
+  prisma,
+  cipher: aiCipher,
+  gateway: { send: (cmd) => gatewayQueue.add(cmd.type, cmd) },
+  appUrl: process.env.WEB_ORIGIN,
+  log,
+});
+const aiWorker = new Worker<AiInboundJob>(
+  AI_QUEUE,
+  async (job) => {
+    const out = await responder.handle(job.data);
+    log('Atendimento da IA', { messageId: job.data.messageId, ...out });
+  },
+  { connection: redis.duplicate(), prefix, concurrency: 3 },
+);
+aiWorker.on('failed', (job, err) => {
+  log('Atendimento da IA falhou', { messageId: job?.data.messageId, err: err.message });
 });
 
 const preparer = new CampaignPreparer(prisma, log);
@@ -356,6 +400,8 @@ onShutdown(async () => {
     importWorker.close(),
     toolWorker.close(),
     campaignWorker.close(),
+    aiWorker.close(),
+    gatewayQueue.close(),
     campaignQueue.close(),
   ]);
   health?.close();

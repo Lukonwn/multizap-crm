@@ -194,6 +194,9 @@ export class BaileysFactory implements ConnectionFactory {
 
     return {
       requestPairingCode: (phoneDigits) => sock.requestPairingCode(phoneDigits),
+      sendPresence: async (jid, state) => {
+        await sock.sendPresenceUpdate(state, jid);
+      },
       profilePictureUrl: async (jid) => {
         try {
           return (await sock.profilePictureUrl(jid, 'preview', 10_000)) ?? null;

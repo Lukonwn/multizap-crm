@@ -141,6 +141,20 @@ export class SessionManager {
     });
   }
 
+  /**
+   * "Digitando…" enquanto o agente de IA gera a resposta. Melhor esforço: se a instância não
+   * estiver conectada ou o envio falhar, simplesmente não mostra.
+   */
+  async sendPresence(accountId: string, jid: string, state: 'composing' | 'paused'): Promise<void> {
+    const s = this.sessions.get(accountId);
+    if (!s?.open || !s.conn?.sendPresence) return;
+    try {
+      await s.conn.sendPresence(jid, state);
+    } catch (err) {
+      this.log('Presença não enviada', { accountId, err: String(err) });
+    }
+  }
+
   /** Foto de perfil (miniatura) de uma conversa existente. Null se não houver ou for privada. */
   profilePicture(accountId: string, jid: string): Promise<string | null> {
     return this.serial(accountId, async () => {

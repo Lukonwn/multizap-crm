@@ -29,5 +29,7 @@ export async function handleCommand(
       return sender.send(cmd.recipientId);
     case 'send-reply':
       return replies?.send(cmd.messageId);
+    case 'send-presence':
+      return manager.sendPresence(cmd.accountId, cmd.jid, cmd.state);
   }
 }

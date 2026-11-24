@@ -471,3 +471,16 @@
 - Backup e restauração cobrem as tabelas novas (chave adiável entre agente e versão publicada).
 - Testes: 10 do pacote `@multizap/ai`, 13 de API e 1 de ponta a ponta novos (14 no total).
 - A ativação no WhatsApp fica desabilitada e identificada até a Entrega 2.
+
+## MultiZap AI: Entrega 2 (atendimento real) ✅
+
+- **Ativar e pausar** agentes por instância (um agente ativo por instância; exige versão publicada, instância e chave da OpenRouter).
+- **Respostas às mensagens recebidas** pelo worker: revisão humana (padrão) ou automático (por agente, com aviso de risco).
+- **Atendimentos** (nova aba em MultiZap AI): conversas atendidas pela IA, rascunhos para aprovar/editar/descartar, pausar e retomar a IA por conversa, liberar contato de campanha e ver o motivo quando a IA não responde.
+- **Pessoa assume:** responder pela Central (ou pelo celular) pausa a IA naquela conversa.
+- **Segurança:** campanha recente (7 dias), descadastro, pausa global, grupos, limites por hora, uma resposta por mensagem, só a mensagem mais recente responde.
+- **Envio:** intervalo mínimo fixo e "digitando…" somente durante a geração real; sem atraso aleatório e sem "gravando áudio".
+- **Memória por contato** e **consumo real** (tokens e custo por agente e instância).
+- Novas tabelas `ai_conversation_states`, `ai_drafts` e `ai_message_links`; migração reversível.
+- Testes: 17 do respondedor (worker), 10 de rotas e 4 do gateway; 14 de ponta a ponta.
+- Passo de implantação: `CREDENTIALS_MASTER_KEY` também no **multizap-worker**.

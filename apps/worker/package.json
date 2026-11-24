@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1176.0",
     "@aws-sdk/lib-storage": "3.1176.0",
+    "@multizap/ai": "workspace:*",
     "@multizap/database": "workspace:*",
     "@multizap/files": "workspace:*",
     "@multizap/shared": "workspace:*",

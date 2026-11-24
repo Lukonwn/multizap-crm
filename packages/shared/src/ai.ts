@@ -5,6 +5,25 @@ import { z } from 'zod';
 export const FORMALITY_OPTIONS = ['formal', 'neutral', 'informal'] as const;
 export const EMOJI_OPTIONS = ['none', 'low', 'medium', 'high'] as const;
 export const LENGTH_OPTIONS = ['short', 'medium', 'long'] as const;
+/** Contexto criptográfico (AAD) da chave da OpenRouter guardada no banco. */
+export const AI_KEY_AAD = 'ai:openrouter:key';
+
+/** Fila do atendimento: o gateway enfileira cada mensagem recebida; o worker responde. */
+export const AI_QUEUE = 'ai-inbound';
+export interface AiInboundJob {
+  accountId: string;
+  conversationId: string;
+  messageId: string;
+}
+/** Espera antes de responder, para juntar mensagens enviadas em sequência. */
+export const AI_DEBOUNCE_MS = 6_000;
+/** Contato que recebeu campanha não é atendido pela IA durante este período. */
+export const AI_CAMPAIGN_QUIET_DAYS = 7;
+/** Uma resposta de pessoa (Central ou celular) mais recente que isto pausa a IA na conversa. */
+export const AI_HUMAN_WINDOW_HOURS = 12;
+/** Teto de respostas da IA por instância por hora (proteção contra excesso de envio). */
+export const AI_ACCOUNT_HOURLY_CAP = 60;
+
 export const AGENT_MODES = ['REVIEW', 'AUTO'] as const;
 
 export const FORMALITY_LABEL: Record<(typeof FORMALITY_OPTIONS)[number], string> = {
@@ -98,6 +117,10 @@ export const agentInputSchema = z.object({
   instructions: text(4000),
   memoryEnabled: z.boolean().default(true),
   mode: z.enum(AGENT_MODES).default('REVIEW'),
+  /** Ajustes operacionais (valem na hora, sem nova publicação). */
+  minIntervalSeconds: z.coerce.number().int().min(0).max(120).default(8),
+  showTyping: z.boolean().default(true),
+  maxRepliesPerHour: z.coerce.number().int().min(1).max(60).default(10),
 });
 export type AgentInput = z.input<typeof agentInputSchema>;
 export const agentUpdateSchema = agentInputSchema.partial();
@@ -123,6 +146,11 @@ export interface AgentDTO {
   memoryEnabled: boolean;
   mode: (typeof AGENT_MODES)[number];
   status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ERROR';
+  minIntervalSeconds: number;
+  showTyping: boolean;
+  maxRepliesPerHour: number;
+  /** Modo da versão publicada (é o que vale no atendimento); null se não publicado. */
+  publishedMode: (typeof AGENT_MODES)[number] | null;
   publishedVersion: { id: string; number: number; createdAt: string } | null;
   /** Há alterações (no agente ou na persona) ainda não publicadas. */
   hasUnpublishedChanges: boolean;
@@ -187,4 +215,48 @@ export interface TestSessionDTO {
   createdAt: string;
   messages: TestMessageDTO[];
   totals: { promptTokens: number; completionTokens: number; costUsd: number | null };
+}
+
+export interface AiDraftDTO {
+  id: string;
+  conversationId: string;
+  agentId: string;
+  agentName: string;
+  body: string;
+  status: 'PENDING' | 'SENT' | 'DISCARDED' | 'FAILED';
+  autoSent: boolean;
+  /** Mensagem do contato que originou a resposta. */
+  inboundText: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export type AiConversationState =
+  | 'serving' // IA atendendo
+  | 'review' // há rascunho aguardando revisão
+  | 'paused' // pausada nesta conversa
+  | 'blocked'; // regra impede (campanha recente, descadastro...)
+
+export interface AiConversationDTO {
+  id: string;
+  accountId: string;
+  accountName: string;
+  title: string | null;
+  phoneE164: string | null;
+  photoUrl: string | null;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  state: AiConversationState;
+  /** Motivo de estar pausada ou bloqueada. */
+  reason: string | null;
+  pausedBy: string | null;
+  enabledOverride: boolean;
+  pendingDrafts: number;
+  agentName: string | null;
+}
+
+export interface AiUsageSummaryDTO {
+  days: number;
+  live: { replies: number; promptTokens: number; completionTokens: number; costUsd: number | null };
+  test: { calls: number; promptTokens: number; completionTokens: number; costUsd: number | null };
 }

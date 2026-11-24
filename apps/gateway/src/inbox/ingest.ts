@@ -52,6 +52,12 @@ export class InboxIngest {
     private readonly prisma: PrismaClient,
     private readonly storage: StorageDriver | null,
     private readonly log: Log = () => undefined,
+    /** MultiZap AI: avisa que chegou uma mensagem nova do contato (ao vivo). Falhas são ignoradas. */
+    private readonly onInbound?: (m: {
+      accountId: string;
+      conversationId: string;
+      messageId: string;
+    }) => Promise<void> | void,
   ) {
     this.identities = new IdentityService(prisma, log);
   }
@@ -140,6 +146,7 @@ export class InboxIngest {
 
     const preview = previewOf(m);
     let createdId = '';
+    let createdConversationId = '';
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.conversation.findUnique({
         where: { accountId_remoteJid: { accountId, remoteJid: m.chatJid } },
@@ -190,7 +197,20 @@ export class InboxIngest {
         },
       });
       createdId = created.id;
+      createdConversationId = conv.id;
     });
+    if (!historical && !m.fromMe && this.onInbound) {
+      try {
+        await this.onInbound({
+          accountId,
+          conversationId: createdConversationId,
+          messageId: createdId,
+        });
+      } catch (err) {
+        // O módulo de IA nunca pode atrapalhar o recebimento de mensagens.
+        this.log('Aviso à IA não enviado', { accountId, err: String(err) });
+      }
+    }
     if (historical && isStorableMedia(m)) this.enqueueMedia({ accountId, messageId: createdId, m });
 
     await this.maybeOptOut(m, contact, historical);

@@ -23,13 +23,14 @@ import {
   type PersonaRevisionDTO,
   type TestMessageDTO,
   type TestSessionDTO,
+  AI_KEY_AAD,
 } from '@multizap/shared';
 import { AppError, Errors } from '../../lib/errors';
 import { parse } from '../../lib/validate';
 import { audit } from '../audit/service';
 
 const PROVIDER = 'openrouter';
-const KEY_AAD = 'ai:openrouter:key';
+const KEY_AAD = AI_KEY_AAD;
 const MODELS_CACHE_KEY = 'multizap:ai:models';
 const MAX_TEST_MESSAGES = 100;
 
@@ -177,6 +178,12 @@ function toAgentDTO(a: AgentRow): AgentDTO {
     memoryEnabled: a.memoryEnabled,
     mode: a.mode,
     status: a.status,
+    minIntervalSeconds: a.minIntervalSeconds,
+    showTyping: a.showTyping,
+    maxRepliesPerHour: a.maxRepliesPerHour,
+    publishedMode:
+      (a.publishedVersion?.snapshot as { agent?: { mode?: AgentDTO['mode'] } } | null)?.agent
+        ?.mode ?? null,
     publishedVersion: a.publishedVersion
       ? {
           id: a.publishedVersion.id,

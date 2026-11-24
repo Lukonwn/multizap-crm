@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, FlaskConical, Rocket, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Pause, Play, Rocket, RotateCcw, Trash2 } from 'lucide-react';
 import {
   ACCOUNT_STATUS_LABEL,
   AGENT_MODES,
@@ -27,7 +27,15 @@ import {
 import { ApiError } from '@/lib/api';
 import { STATUS_TONE, useAccounts } from '@/lib/accounts';
 import { formatDateTime } from '@/lib/format';
-import { useAgent, useAgentVersions, useAiMutation, usePersonas } from '@/lib/ai';
+import {
+  formatUsd,
+  useAgent,
+  useAgentVersions,
+  useAiMutation,
+  useAiSettings,
+  useAiUsage,
+  usePersonas,
+} from '@/lib/ai';
 import { AgentStatusBadge } from '@/components/ai/agent-status';
 import { ConfirmNameModal } from '@/components/ai/confirm-name-modal';
 import { ModelPicker } from '@/components/ai/model-picker';
@@ -295,6 +303,141 @@ function AccountsCard({ agent }: { agent: AgentDTO }) {
   );
 }
 
+function OperationCard({ agent }: { agent: AgentDTO }) {
+  const save = useAiMutation();
+  const [interval, setIntervalSecs] = useState(String(agent.minIntervalSeconds));
+  const [typing, setTyping] = useState(agent.showTyping);
+  const [limit, setLimit] = useState(String(agent.maxRepliesPerHour));
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    setIntervalSecs(String(agent.minIntervalSeconds));
+    setTyping(agent.showTyping);
+    setLimit(String(agent.maxRepliesPerHour));
+  }, [agent]);
+  const fields = save.error instanceof ApiError ? (save.error.fields ?? {}) : {};
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Envio das respostas</CardTitle>
+        <CardDescription>
+          Valem na hora, sem nova publicação. Servem para não sobrecarregar o número.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Field
+          label="Intervalo mínimo entre respostas (segundos)"
+          htmlFor="op-interval"
+          hint="Tempo fixo de espera antes de enviar no modo automático. Não é aleatório."
+          error={fields.minIntervalSeconds?.[0]}
+        >
+          <Input
+            id="op-interval"
+            type="number"
+            min={0}
+            max={120}
+            value={interval}
+            onChange={(e) => {
+              setSaved(false);
+              setIntervalSecs(e.target.value);
+            }}
+          />
+        </Field>
+        <Field
+          label="Máximo de respostas por hora em cada conversa"
+          htmlFor="op-limit"
+          error={fields.maxRepliesPerHour?.[0]}
+        >
+          <Input
+            id="op-limit"
+            type="number"
+            min={1}
+            max={60}
+            value={limit}
+            onChange={(e) => {
+              setSaved(false);
+              setLimit(e.target.value);
+            }}
+          />
+        </Field>
+        <label className="flex items-start gap-2 text-sm text-fg">
+          <input
+            type="checkbox"
+            checked={typing}
+            onChange={(e) => {
+              setSaved(false);
+              setTyping(e.target.checked);
+            }}
+            className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            Mostrar “digitando…” ao contato
+            <span className="block text-xs text-subtle">
+              Só no modo automático e somente enquanto a resposta está de fato sendo gerada.
+            </span>
+          </span>
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            loading={save.isPending}
+            onClick={() =>
+              save.mutate(
+                {
+                  path: `/ai/agents/${agent.id}`,
+                  method: 'PATCH',
+                  json: {
+                    minIntervalSeconds: Number(interval),
+                    maxRepliesPerHour: Number(limit),
+                    showTyping: typing,
+                  },
+                },
+                { onSuccess: () => setSaved(true) },
+              )
+            }
+          >
+            Salvar ajustes
+          </Button>
+          {saved && <span className="text-sm text-success">Salvo.</span>}
+          {save.error && !Object.keys(fields).length && (
+            <span className="text-sm text-danger">{(save.error as Error).message}</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function UsageCard({ agent }: { agent: AgentDTO }) {
+  const usage = useAiUsage(agent.id);
+  const u = usage.data;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Consumo (últimos 30 dias)</CardTitle>
+        <CardDescription>Tokens e custo registrados pela OpenRouter.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {usage.isLoading || !u ? (
+          <Spinner />
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+            <dt className="text-muted">Atendimento real</dt>
+            <dd className="text-fg">
+              {u.live.replies} resposta(s) · {u.live.promptTokens + u.live.completionTokens} tokens
+              · {formatUsd(u.live.costUsd)}
+            </dd>
+            <dt className="text-muted">Testes no laboratório</dt>
+            <dd className="text-fg">
+              {u.test.calls} chamada(s) · {u.test.promptTokens + u.test.completionTokens} tokens ·{' '}
+              {formatUsd(u.test.costUsd)}
+            </dd>
+          </dl>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PublishCard({ agent }: { agent: AgentDTO }) {
   const versions = useAgentVersions(agent.id);
   const publish = useAiMutation();
@@ -412,7 +555,11 @@ export default function AgentPage() {
   const router = useRouter();
   const agent = useAgent(id);
   const del = useAiMutation();
+  const toggle = useAiMutation();
+  const settings = useAiSettings();
   const [deleting, setDeleting] = useState(false);
+  const run = (action: 'activate' | 'pause') =>
+    toggle.mutate({ path: `/ai/agents/${id}/${action}` });
 
   if (agent.isLoading) return <Spinner />;
   if (agent.error) return <Alert tone="danger">{(agent.error as Error).message}</Alert>;
@@ -436,13 +583,29 @@ export default function AgentPage() {
               <FlaskConical className="h-4 w-4" /> Testar no laboratório
             </Link>
           </Button>
-          <Button
-            variant="secondary"
-            disabled
-            title="O atendimento real chega na próxima etapa do MultiZap AI"
-          >
-            Ativar (disponível em breve)
-          </Button>
+          {a.status === 'ACTIVE' ? (
+            <Button variant="secondary" loading={toggle.isPending} onClick={() => run('pause')}>
+              <Pause className="h-4 w-4" /> Pausar agente
+            </Button>
+          ) : (
+            <Button
+              loading={toggle.isPending}
+              disabled={!a.publishedVersion}
+              title={!a.publishedVersion ? 'Publique uma versão antes de ativar' : undefined}
+              onClick={() => {
+                if (
+                  a.publishedMode === 'AUTO' &&
+                  !window.confirm(
+                    'Modo automático: o agente vai responder sozinho às mensagens recebidas, sem revisão. Respostas automáticas em excesso podem levar o WhatsApp a restringir o número. Ativar mesmo assim?',
+                  )
+                )
+                  return;
+                run('activate');
+              }}
+            >
+              <Play className="h-4 w-4" /> Ativar agente
+            </Button>
+          )}
           <Button
             variant="danger"
             disabled={a.status === 'ACTIVE'}
@@ -455,15 +618,42 @@ export default function AgentPage() {
           </Button>
         </div>
       </div>
-      <Alert tone="info">
-        Nesta etapa o agente pode ser configurado, publicado e testado no laboratório. O atendimento
-        real no WhatsApp ainda não está ligado.
-      </Alert>
+      {toggle.error && <Alert tone="danger">{(toggle.error as Error).message}</Alert>}
+      {a.status === 'ACTIVE' ? (
+        <Alert
+          tone={a.publishedMode === 'AUTO' ? 'warning' : 'success'}
+          title={`Atendendo ${a.accounts.length} instância(s) com a v${a.publishedVersion?.number ?? '?'}`}
+        >
+          {a.publishedMode === 'AUTO'
+            ? 'Modo automático: as respostas são enviadas sem revisão.'
+            : 'Revisão humana: cada resposta espera sua aprovação em Atendimentos.'}{' '}
+          <Link className="underline" href="/ai/atendimentos">
+            Abrir atendimentos
+          </Link>
+        </Alert>
+      ) : a.status === 'ERROR' ? (
+        <Alert tone="danger" title="Agente parado por erro">
+          A OpenRouter recusou a chave ou não há créditos. Corrija em Configurações e ative de novo.
+        </Alert>
+      ) : (
+        <Alert tone="info">
+          {a.status === 'PAUSED'
+            ? 'Agente pausado: não responde a ninguém.'
+            : 'Agente ainda não está atendendo.'}{' '}
+          Para atender no WhatsApp: publique uma versão, escolha as instâncias e clique em “Ativar
+          agente”.
+          {settings.data && !settings.data.configured && (
+            <> Falta configurar a chave da OpenRouter.</>
+          )}
+        </Alert>
+      )}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <GeneralCard agent={a} />
         <div className="space-y-6">
           <PublishCard agent={a} />
           <AccountsCard agent={a} />
+          <OperationCard agent={a} />
+          <UsageCard agent={a} />
         </div>
       </div>
       <ConfirmNameModal

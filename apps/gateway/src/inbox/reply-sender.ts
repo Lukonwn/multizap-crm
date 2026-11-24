@@ -61,6 +61,11 @@ export class ReplySender {
         },
       });
       if (echo) {
+        // Preserva a marca de "enviada pela IA" ao trocar a mensagem pendente pelo eco.
+        await tx.aiMessageLink.updateMany({
+          where: { messageId: msg.id },
+          data: { messageId: echo.id },
+        });
         await tx.message.delete({ where: { id: msg.id } });
         await tx.message.update({
           where: { id: echo.id },

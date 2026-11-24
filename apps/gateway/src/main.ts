@@ -1,10 +1,17 @@
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
-import { Worker } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import pino from 'pino';
 import { getPrisma, notify, recordSystemEvent, resolveNotifications } from '@multizap/database';
-import { GATEWAY_QUEUE, HEARTBEAT_KEYS, type GatewayCommand } from '@multizap/shared';
+import {
+  AI_DEBOUNCE_MS,
+  AI_QUEUE,
+  GATEWAY_QUEUE,
+  HEARTBEAT_KEYS,
+  type AiInboundJob,
+  type GatewayCommand,
+} from '@multizap/shared';
 import { cipherFromEnv } from '@multizap/shared/crypto';
 import { onShutdown, startHealthServer, startHeartbeat } from '@multizap/shared/runtime';
 import { DbAuthStore } from './whatsapp/auth-store';
@@ -80,7 +87,22 @@ try {
     'Armazenamento indisponível: imagens não serão enviadas nem armazenadas',
   );
 }
-const ingest = new InboxIngest(prisma, storage, log);
+// MultiZap AI: cada mensagem nova de contato vira um job (com espera para juntar mensagens em
+// sequência) somente se a instância tiver um agente ativo. O worker é quem responde.
+const aiQueue = new Queue<AiInboundJob>(AI_QUEUE, {
+  connection: redis.duplicate(),
+  prefix: process.env.BULLMQ_PREFIX || 'bull',
+  defaultJobOptions: { removeOnComplete: 500, removeOnFail: 500, attempts: 1 },
+});
+aiQueue.on('error', (err) => logger.warn({ err: err.message }, 'Fila da IA'));
+const ingest = new InboxIngest(prisma, storage, log, async (m) => {
+  const active = await prisma.aiAgentAccount.findFirst({
+    where: { accountId: m.accountId, agent: { status: 'ACTIVE' } },
+    select: { id: true },
+  });
+  if (!active) return;
+  await aiQueue.add('inbound', m, { jobId: `ai-${m.messageId}`, delay: AI_DEBOUNCE_MS });
+});
 const manager = new SessionManager(prisma, redis, factory, store, locks, {
   log,
   onMessages: (accountId, messages, historical) => ingest.ingest(accountId, messages, historical),
@@ -181,6 +203,7 @@ onShutdown(async () => {
   stopPhotos();
   stopHeartbeat();
   await worker.close();
+  await aiQueue.close();
   // Encerra sockets SEM logout: as sessões são restauradas na próxima inicialização.
   await manager.shutdown();
   health?.close();

@@ -56,6 +56,8 @@ export interface MessageDTO {
   status: string;
   hasMedia: boolean;
   fromCampaign: boolean;
+  /** Enviada por um agente do MultiZap AI. */
+  byAi?: boolean;
   sentAt: string;
 }
 

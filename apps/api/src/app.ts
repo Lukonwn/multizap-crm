@@ -26,6 +26,7 @@ import { deviceContactRoutes } from './modules/device-contacts/routes';
 import type { GatewayClient } from './lib/gateway';
 import type { CredentialCipher } from '@multizap/shared/crypto';
 import { aiRoutes } from './modules/ai/routes';
+import { aiServiceRoutes } from './modules/ai/service-routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -163,6 +164,7 @@ export async function buildApp({
   await app.register(systemRoutes);
   await app.register(deviceContactRoutes);
   await app.register(aiRoutes);
+  await app.register(aiServiceRoutes);
 
   return app;
 }

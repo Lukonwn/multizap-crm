@@ -2,6 +2,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AgentDTO,
+  AiConversationDTO,
+  AiDraftDTO,
+  AiUsageSummaryDTO,
   AgentVersionDTO,
   AiModelDTO,
   AiSettingsDTO,
@@ -23,6 +26,10 @@ export const aiKeys = {
   agent: (id: string) => ['ai', 'agent', id] as const,
   versions: (id: string) => ['ai', 'agent', id, 'versions'] as const,
   session: (id: string) => ['ai', 'session', id] as const,
+  conversations: (filter: string, accountId: string) =>
+    ['ai', 'conversations', filter, accountId] as const,
+  drafts: (conversationId: string) => ['ai', 'drafts', conversationId] as const,
+  usage: (agentId: string) => ['ai', 'usage', agentId] as const,
 };
 
 export function useAiSettings() {
@@ -97,6 +104,38 @@ export function useTestSession(id: string | null) {
     queryFn: () =>
       api<{ session: TestSessionDTO }>(`/ai/test-sessions/${id}`).then((r) => r.session),
     enabled: !!id,
+  });
+}
+
+export function useAiConversations(filter: string, accountId: string) {
+  return useQuery({
+    queryKey: aiKeys.conversations(filter, accountId),
+    queryFn: () =>
+      api<{ items: AiConversationDTO[] }>(
+        `/ai/conversations?${toQueryString({ filter, accountId: accountId || undefined })}`,
+      ).then((r) => r.items),
+    refetchInterval: 5000,
+  });
+}
+
+export function useAiDrafts(conversationId: string | null) {
+  return useQuery({
+    queryKey: aiKeys.drafts(conversationId ?? ''),
+    queryFn: () =>
+      api<{ items: AiDraftDTO[] }>(
+        `/ai/drafts?${toQueryString({ status: 'PENDING', conversationId: conversationId ?? undefined })}`,
+      ).then((r) => r.items),
+    enabled: !!conversationId,
+    refetchInterval: 4000,
+  });
+}
+
+export function useAiUsage(agentId: string | null) {
+  return useQuery({
+    queryKey: aiKeys.usage(agentId ?? ''),
+    queryFn: () =>
+      api<AiUsageSummaryDTO>(`/ai/usage?${toQueryString({ agentId: agentId ?? undefined })}`),
+    enabled: !!agentId,
   });
 }
 

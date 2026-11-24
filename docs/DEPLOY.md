@@ -51,14 +51,14 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 
 ### multizap-worker e multizap-gateway
 
-| Variável                  | Valor                                                                     |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `NODE_ENV`                | `production`                                                              |
-| `DATABASE_URL`            | `${{Postgres.DATABASE_URL}}`                                              |
-| `REDIS_URL`               | `${{Redis.REDIS_URL}}`                                                    |
-| `CREDENTIALS_MASTER_KEY`  | a mesma da API (gateway; no worker, a partir da Entrega 2 do MultiZap AI) |
-| `CREDENTIALS_KEY_VERSION` | `1`                                                                       |
-| `REPORTS_TZ`              | opcional, padrão `America/Sao_Paulo` (somente worker; o mesmo da API)     |
+| Variável                  | Valor                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `NODE_ENV`                | `production`                                                                      |
+| `DATABASE_URL`            | `${{Postgres.DATABASE_URL}}`                                                      |
+| `REDIS_URL`               | `${{Redis.REDIS_URL}}`                                                            |
+| `CREDENTIALS_MASTER_KEY`  | a mesma da API (gateway; no worker, para o MultiZap AI ler a chave da OpenRouter) |
+| `CREDENTIALS_KEY_VERSION` | `1`                                                                               |
+| `REPORTS_TZ`              | opcional, padrão `America/Sao_Paulo` (somente worker; o mesmo da API)             |
 
 Defina também `PORT=8080` no worker e no gateway: o servidor de health check só sobe quando `PORT` está definida.
 

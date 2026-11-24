@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { Prisma } from '@multizap/database';
+import type { Prisma, PrismaClient } from '@multizap/database';
 import { isOperationsPaused } from '@multizap/database';
 import {
   CONVERSATION_FILTERS,
@@ -15,16 +15,17 @@ import { AppError, Errors } from '../../lib/errors';
 import { parse } from '../../lib/validate';
 import { audit } from '../audit/service';
 import { contactInclude, toContactDTO } from '../contacts/dto';
+import { pauseAiForHuman } from '../ai/takeover';
 
 const idParams = z.object({ id: z.string().uuid('Conversa inválida.') });
 
-const convInclude = {
+export const convInclude = {
   account: {
     select: { id: true, name: true, status: true, connectionType: true, disabledAt: true },
   },
   contact: { select: { id: true, name: true, phoneE164: true, optedOutAt: true } },
 } satisfies Prisma.ConversationInclude;
-type ConvRow = Prisma.ConversationGetPayload<{ include: typeof convInclude }>;
+export type ConvRow = Prisma.ConversationGetPayload<{ include: typeof convInclude }>;
 
 const MEDIA_TYPES: Record<string, string> = {
   webp: 'image/webp',
@@ -68,6 +69,42 @@ function toConversationDTO(c: ConvRow): ConversationDTO {
   };
 }
 
+/** Quando é permitido responder a uma conversa (regras do canal e de consentimento). */
+export async function replyPermissionFor(
+  prisma: PrismaClient,
+  c: ConvRow,
+): Promise<ReplyPermission> {
+  if (c.account.connectionType !== 'WHATSAPP_WEB')
+    return { allowed: false, reason: 'Aparelho apenas cadastrado: responda pelo celular.' };
+  if (c.account.disabledAt) return { allowed: false, reason: 'A instância está desativada.' };
+  if (c.account.status !== 'CONNECTED')
+    return { allowed: false, reason: 'A instância não está conectada.' };
+  if (await isOperationsPaused(prisma))
+    return { allowed: false, reason: 'As operações estão pausadas globalmente.' };
+  // Descadastrado (no contato do CRM ou na lista de descadastros da instância).
+  const phone = phoneOf(c);
+  const optOut = phone
+    ? await prisma.optOut.findUnique({
+        where: { accountId_phoneE164: { accountId: c.accountId, phoneE164: phone } },
+        select: { createdAt: true },
+      })
+    : null;
+  const optedOutAt = c.contact?.optedOutAt ?? optOut?.createdAt ?? null;
+  if (optedOutAt) {
+    // Só volta a receber resposta se escrever novamente depois do pedido.
+    const after = await prisma.message.count({
+      where: { conversationId: c.id, direction: 'INBOUND', sentAt: { gt: optedOutAt } },
+    });
+    if (!after)
+      return {
+        allowed: false,
+        reason:
+          'O contato pediu descadastramento. Só é possível responder se ele escrever novamente.',
+      };
+  }
+  return { allowed: true, reason: null };
+}
+
 export async function inboxRoutes(app: FastifyInstance) {
   const { prisma } = app;
   const auth = { preHandler: app.requireAuth };
@@ -78,38 +115,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     return c;
   };
 
-  /** Quando é permitido responder pela Central (regras do canal e de consentimento). */
-  const replyPermission = async (c: ConvRow): Promise<ReplyPermission> => {
-    if (c.account.connectionType !== 'WHATSAPP_WEB')
-      return { allowed: false, reason: 'Aparelho apenas cadastrado: responda pelo celular.' };
-    if (c.account.disabledAt) return { allowed: false, reason: 'A instância está desativada.' };
-    if (c.account.status !== 'CONNECTED')
-      return { allowed: false, reason: 'A instância não está conectada.' };
-    if (await isOperationsPaused(prisma))
-      return { allowed: false, reason: 'As operações estão pausadas globalmente.' };
-    // Descadastrado (no contato do CRM ou na lista de descadastros da instância).
-    const phone = phoneOf(c);
-    const optOut = phone
-      ? await prisma.optOut.findUnique({
-          where: { accountId_phoneE164: { accountId: c.accountId, phoneE164: phone } },
-          select: { createdAt: true },
-        })
-      : null;
-    const optedOutAt = c.contact?.optedOutAt ?? optOut?.createdAt ?? null;
-    if (optedOutAt) {
-      // Só volta a receber resposta se escrever novamente depois do pedido.
-      const after = await prisma.message.count({
-        where: { conversationId: c.id, direction: 'INBOUND', sentAt: { gt: optedOutAt } },
-      });
-      if (!after)
-        return {
-          allowed: false,
-          reason:
-            'O contato pediu descadastramento. Só é possível responder se ele escrever novamente.',
-        };
-    }
-    return { allowed: true, reason: null };
-  };
+  const replyPermission = (c: ConvRow) => replyPermissionFor(prisma, c);
 
   app.get('/conversations', auth, async (req) => {
     const q = parse(
@@ -256,6 +262,7 @@ export async function inboxRoutes(app: FastifyInstance) {
       where: { conversationId: id, ...(before && { sentAt: { lt: before } }) },
       orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
+      include: { aiLink: { select: { id: true } } },
     });
     const hasMore = rows.length > limit;
     const items: MessageDTO[] = rows
@@ -269,6 +276,7 @@ export async function inboxRoutes(app: FastifyInstance) {
         status: m.status,
         hasMedia: !!m.mediaKey,
         fromCampaign: !!m.campaignRecipientId,
+        byAi: !!m.aiLink,
         sentAt: m.sentAt.toISOString(),
       }));
     return { items, hasMore };
@@ -337,6 +345,8 @@ export async function inboxRoutes(app: FastifyInstance) {
       },
     });
     await prisma.conversation.update({ where: { id: c.id }, data: { unreadCount: 0 } });
+    // MultiZap AI: quando uma pessoa responde, a IA se afasta desta conversa.
+    await pauseAiForHuman(prisma, c.id);
     await app.gateway.send({ type: 'send-reply', accountId: c.accountId, messageId: m.id });
     await audit(prisma, req, {
       action: 'conversation.replied',

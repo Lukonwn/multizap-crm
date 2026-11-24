@@ -18,7 +18,9 @@ export type GatewayCommand =
   /** Envio individual confirmado pelo administrador (campanha assistida). */
   | { type: 'send-campaign-message'; accountId: string; recipientId: string }
   /** Resposta escrita pelo administrador na Central de Mensagens. */
-  | { type: 'send-reply'; accountId: string; messageId: string };
+  | { type: 'send-reply'; accountId: string; messageId: string }
+  /** "Digitando…" enquanto o agente gera a resposta (somente durante a geração real). */
+  | { type: 'send-presence'; accountId: string; jid: string; state: 'composing' | 'paused' };
 
 export type PairingState =
   | { kind: 'starting'; method: 'qr' | 'pairing-code'; at: number }

@@ -30,6 +30,7 @@ const MODULES = [
   ['/campanhas', 'Campanhas'],
   ['/relatorios', 'Relatórios'],
   ['/ai/agentes', 'MultiZap AI'],
+  ['/ai/atendimentos', 'MultiZap AI'],
   ['/system-health', 'System Health'],
   ['/configuracoes', 'Configurações'],
 ] as const;
@@ -155,6 +156,15 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByRole('button', { name: 'Publicar versão' }).click();
   await expect(page.getByText('Publicada: v1')).toBeVisible();
 
+  // Sem chave da OpenRouter o agente não pode ser ativado (e nada chega ao WhatsApp).
+  await page.getByRole('button', { name: 'Ativar agente' }).click();
+  await expect(page.getByText(/Configure a chave da OpenRouter/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pausar agente' })).toHaveCount(0);
+
+  await page.goto('/ai/atendimentos');
+  await expect(page.getByText('Nenhuma conversa')).toBeVisible();
+  await page.goBack();
+
   await page.getByRole('link', { name: 'Testar no laboratório' }).click();
   await expect(page.getByText('Simulação', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Nova conversa de teste' }).click();
@@ -225,6 +235,9 @@ test('logout encerra a sessão', async () => {
 
 test('nenhum erro de JavaScript ou de console durante o percurso', () => {
   // 401 esperados (rota protegida antes do login, senha errada) não são erros de página.
-  const unexpected = pageErrors.filter((e) => !/401|Unauthorized|status of 401/.test(e));
+  // 409 na tela do agente: recusa esperada ao ativar sem chave da OpenRouter.
+  const unexpected = pageErrors.filter(
+    (e) => !/401|Unauthorized|status of 401/.test(e) && !/\/ai\/agentes\/.*status of 409/.test(e),
+  );
   expect(unexpected).toEqual([]);
 });

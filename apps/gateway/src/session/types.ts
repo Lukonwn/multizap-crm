@@ -97,6 +97,8 @@ export interface WaConnection {
   profilePictureUrl?(jid: string): Promise<string | null>;
   /** Envia uma mensagem individual. Retorna o id atribuído pelo WhatsApp. */
   sendMessage(jid: string, message: OutgoingMessage): Promise<{ id: string; timestamp: number }>;
+  /** Mostra "digitando…" ou o apaga em uma conversa individual. */
+  sendPresence?(jid: string, state: 'composing' | 'paused'): Promise<void>;
 }
 
 export interface ConnectionFactory {

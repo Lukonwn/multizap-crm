@@ -607,9 +607,11 @@ model Conversation {
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  contact  Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  account  Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact  Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
   messages Message[]
+  aiState  AiConversationState?
+  aiDrafts AiDraft[]
 
   @@unique([accountId, remoteJid])
   @@index([accountId, lastMessageAt])
@@ -659,6 +661,7 @@ model Message {
   conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   campaignRecipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
   events            MessageEvent[]
+  aiLink            AiMessageLink?
 
   @@unique([accountId, providerMessageId])
   @@index([conversationId, sentAt])
@@ -817,6 +820,13 @@ enum AiAgentStatus {
   ERROR
 }
 
+enum AiDraftStatus {
+  PENDING
+  SENT
+  DISCARDED
+  FAILED
+}
+
 enum AiUsageContext {
   TEST
   LIVE
@@ -906,6 +916,11 @@ model AiAgent {
   memoryEnabled      Boolean       @default(true) @map("memory_enabled")
   mode               AiAgentMode   @default(REVIEW)
   status             AiAgentStatus @default(DRAFT)
+  /// Intervalo mínimo (s) entre a mensagem do contato e o envio automático, e entre respostas.
+  minIntervalSeconds Int           @default(8) @map("min_interval_seconds")
+  /// Mostra "digitando…" ao contato enquanto a resposta é realmente gerada (modo automático).
+  showTyping         Boolean       @default(true) @map("show_typing")
+  maxRepliesPerHour  Int           @default(10) @map("max_replies_per_hour")
   publishedVersionId String?       @unique @map("published_version_id") @db.Uuid
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
@@ -917,6 +932,8 @@ model AiAgent {
   testSessions     AiTestSession[]
   usage            AiTokenUsage[]
   events           AiAgentEvent[]
+  drafts           AiDraft[]
+  messageLinks     AiMessageLink[]
 
   @@index([status])
   @@map("ai_agents")
@@ -996,11 +1013,16 @@ model AiTokenUsage {
   costUsd          Decimal?       @map("cost_usd") @db.Decimal(14, 8)
   costConfirmed    Boolean        @default(false) @map("cost_confirmed")
   latencyMs        Int?           @map("latency_ms")
+  /// Conversa atendida (somente uso real); sem chave estrangeira para sobreviver à exclusão.
+  conversationId   String?        @map("conversation_id") @db.Uuid
+  /// reply | memory
+  purpose          String?
   createdAt        DateTime       @default(now()) @map("created_at")
 
   agent AiAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([agentId, createdAt])
+  @@index([accountId, createdAt])
   @@index([createdAt])
   @@map("ai_token_usage")
 }
@@ -1020,4 +1042,70 @@ model AiAgentEvent {
   @@index([agentId, createdAt])
   @@index([category, createdAt])
   @@map("ai_agent_events")
+}
+
+/// Estado da IA em uma conversa: pausa (humano assumiu), liberação manual e memória do contato.
+model AiConversationState {
+  id              String    @id @default(uuid()) @db.Uuid
+  conversationId  String    @unique @map("conversation_id") @db.Uuid
+  paused          Boolean   @default(false)
+  /// admin | phone | campaign | limit | system
+  pausedBy        String?   @map("paused_by")
+  pausedReason    String?   @map("paused_reason")
+  pausedAt        DateTime? @map("paused_at")
+  /// Liberação manual: atende mesmo após campanha recente.
+  enabledOverride Boolean   @default(false) @map("enabled_override")
+  lastReplyAt     DateTime? @map("last_reply_at")
+  lastSkip        String?   @map("last_skip")
+  lastSkipAt      DateTime? @map("last_skip_at")
+  memory          String?
+  memoryAgentId   String?   @map("memory_agent_id") @db.Uuid
+  memoryUpdatedAt DateTime? @map("memory_updated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_conversation_states")
+}
+
+/// Resposta sugerida (ou enviada) pelo agente a uma mensagem recebida. A restrição única em
+/// `inbound_message_id` garante uma única resposta por mensagem, mesmo com jobs repetidos.
+model AiDraft {
+  id               String        @id @default(uuid()) @db.Uuid
+  conversationId   String        @map("conversation_id") @db.Uuid
+  agentId          String        @map("agent_id") @db.Uuid
+  versionId        String?       @map("version_id") @db.Uuid
+  inboundMessageId String        @unique @map("inbound_message_id") @db.Uuid
+  body             String
+  status           AiDraftStatus @default(PENDING)
+  /// Texto de fato enviado (se o administrador editou).
+  sentBody         String?       @map("sent_body")
+  messageId        String?       @map("message_id") @db.Uuid
+  autoSent         Boolean       @default(false) @map("auto_sent")
+  decidedAt        DateTime?     @map("decided_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent        AiAgent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([agentId, status])
+  @@map("ai_drafts")
+}
+
+/// Marca as mensagens enviadas por um agente (automáticas ou aprovadas pelo administrador).
+model AiMessageLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @unique @map("message_id") @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  /// auto | review
+  source    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  agent   AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@map("ai_message_links")
 }

@@ -1,6 +1,6 @@
 # ADR 0007: MultiZap AI (agentes de IA no atendimento)
 
-**Status:** aceito (Entrega 1 implementada; Entregas 2 a 5 planejadas)
+**Status:** aceito (Entregas 1 e 2 implementadas; 3 a 5 planejadas)
 
 ## Contexto
 
@@ -19,6 +19,21 @@ O administrador quer agentes de IA que atendam pelo WhatsApp com personas própr
 9. **Base de conhecimento** começa com busca textual do PostgreSQL (português), sem serviço de vetores (Entrega 3).
 10. **Entregas condicionadas a pagamento** só com confirmação real da fonte responsável, nunca pela palavra do contato ou do modelo (Entrega 4).
 11. **Falhas da IA não derrubam o CRM.** Erros da OpenRouter viram mensagens/eventos do módulo; nada do restante depende dele.
+
+## Entrega 2: atendimento real
+
+- **Fluxo:** o gateway grava a mensagem do contato (como sempre) e, só se a instância tiver agente ativo e a mensagem for ao vivo, enfileira um job na fila `ai-inbound` com espera de 6 s (para juntar mensagens em sequência). O **worker** decide e responde. Falha em qualquer ponto do módulo é registrada e não afeta a gravação nem a exibição de mensagens.
+- **Quem responde:** o worker usa a **versão publicada** (modelo, persona, instruções e modo vêm da fotografia). Trocar para o modo automático exige publicar de novo.
+- **Revisão humana (padrão):** a resposta vira rascunho (`ai_drafts`) em MultiZap AI → Atendimentos; o administrador aprova (pode editar) ou descarta. **Automático:** o worker grava a mensagem como pendente e o gateway envia pelo mesmo caminho das respostas manuais.
+- **Quando a IA NÃO responde** (e o motivo aparece na tela): grupos, canais e listas; agente pausado/em erro; operações pausadas globalmente; contato descadastrado (até escrever de novo); contato que recebeu **campanha nos últimos 7 dias** (salvo liberação manual da conversa); conversa pausada; mensagem sem texto (áudio, imagem...); limite de respostas por hora na conversa (padrão 10) ou na instância (60); outra mensagem mais nova do contato (só a última responde).
+- **Pessoa assume:** quando alguém responde pela Central, ou pelo celular, nas últimas 12 h, a IA pausa naquela conversa até o administrador retomar. A marca "enviada pela IA" (`ai_message_links`) acompanha a mensagem mesmo quando o eco da sessão a substitui.
+- **Idempotência:** `ai_drafts.inbound_message_id` é único: uma mensagem do contato gera no máximo uma resposta, mesmo com jobs repetidos ou dois cliques em "aprovar" (reserva atômica).
+- **"Digitando…":** no modo automático, o worker pede ao gateway para mostrar "digitando" **somente enquanto a resposta está de fato sendo gerada** e o apaga ao terminar (mesmo em erro); pode ser desligado por agente. O **intervalo mínimo** antes do envio é **fixo e configurável** (padrão 8 s): é proteção contra excesso de envio, não simulação de comportamento humano. Não existe "gravando áudio" (o agente não envia áudio) nem atraso aleatório.
+- **Memória:** resumo por conversa (instância + contato + agente), atualizado a cada 12 mensagens novas por uma chamada curta ao modelo e usado no prompt seguinte. Trocar o agente da instância não reaproveita a memória do anterior.
+- **Erros da OpenRouter:** chave inválida ou sem créditos **param o agente** (status Erro) para não repetir a falha a cada mensagem; erros temporários só viram evento. Tudo em MultiZap AI → eventos do agente.
+- **Consumo real** (`context = LIVE`) por agente, instância e conversa, separado do uso de testes.
+- **Migração** `20261126120000_ai_service`: só tabelas `ai_*` (novas) e colunas novas em tabelas `ai_*`; reversão em [`docs/migrations/20261126120000_ai_service.down.sql`](../migrations/20261126120000_ai_service.down.sql).
+- **Requisito de implantação:** o worker precisa da mesma `CREDENTIALS_MASTER_KEY` da API para ler a chave da OpenRouter. Sem ela, o agente não responde e registra um evento claro.
 
 ## Migração
 

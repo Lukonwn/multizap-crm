@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
-import { IMPORTS_QUEUE, type ImportJob } from '@multizap/shared';
+import { IMPORTS_QUEUE, TOOLS_QUEUE, type ImportJob, type ToolJobData } from '@multizap/shared';
 
 /** Fila de jobs de importação (consumida pelo worker). */
 export class ImportQueue {
@@ -25,6 +25,36 @@ export class ImportQueue {
   /** A duplicidade é evitada pelas transições atômicas de status na API. */
   async add(job: ImportJob): Promise<void> {
     await this.queue.add(job.type, job, { jobId: `${job.type}-${job.importId}-${Date.now()}` });
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
+    this.conn.disconnect();
+  }
+}
+
+/** Fila das ferramentas de listas (consumida pelo worker). */
+export class ToolQueue {
+  private readonly conn: Redis;
+  readonly queue: Queue<ToolJobData>;
+
+  constructor(redisUrl: string, prefix = 'bull') {
+    this.conn = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.conn.on('error', () => undefined);
+    this.queue = new Queue<ToolJobData>(TOOLS_QUEUE, {
+      connection: this.conn,
+      prefix,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 10_000 },
+        removeOnComplete: 500,
+        removeOnFail: 1000,
+      },
+    });
+  }
+
+  async add(data: ToolJobData): Promise<void> {
+    await this.queue.add('run', data, { jobId: data.jobId });
   }
 
   async close(): Promise<void> {

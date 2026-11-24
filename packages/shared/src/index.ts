@@ -10,3 +10,4 @@ export * from './gateway';
 export * from './dashboard';
 export * from './contacts';
 export * from './imports';
+export * from './tools';

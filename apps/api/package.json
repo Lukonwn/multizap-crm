@@ -23,6 +23,7 @@
     "@multizap/integrations": "workspace:*",
     "@multizap/shared": "workspace:*",
     "@multizap/storage": "workspace:*",
+    "@multizap/tools": "workspace:*",
     "@prisma/client": "6.19.3",
     "argon2": "^0.41.1",
     "bullmq": "^5.81.6",

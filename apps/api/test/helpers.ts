@@ -5,7 +5,7 @@ import { hashPassword } from '@multizap/shared/password';
 import { CSRF_COOKIE, SESSION_COOKIE } from '@multizap/shared';
 import { buildApp } from '../src/app';
 import { GatewayClient } from '../src/lib/gateway';
-import { ImportQueue } from '../src/lib/queues';
+import { ImportQueue, ToolQueue } from '../src/lib/queues';
 import { LocalStorage } from '@multizap/storage';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +22,7 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
   gateway: GatewayClient;
   storage: LocalStorage;
   importQueue: ImportQueue;
+  toolQueue: ToolQueue;
 }> {
   const url = process.env.TEST_DATABASE_URL!;
   const config = loadConfig({
@@ -39,6 +40,7 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
   const gateway = new GatewayClient(config.redisUrl!, redis, 'mztest');
   const storage = new LocalStorage(mkdtempSync(join(tmpdir(), 'mz-api-')));
   const importQueue = new ImportQueue(config.redisUrl!, 'mztest');
+  const toolQueue = new ToolQueue(config.redisUrl!, 'mztest');
   const app = await buildApp({
     config,
     prisma,
@@ -46,14 +48,16 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
     gateway,
     storage,
     importQueue,
+    toolQueue,
     logger: false,
   });
   app.addHook('onClose', async () => {
     await gateway.close();
     await importQueue.close();
+    await toolQueue.close();
   });
   await app.ready();
-  return { app, prisma, redis, gateway, storage, importQueue };
+  return { app, prisma, redis, gateway, storage, importQueue, toolQueue };
 }
 
 export async function resetDb(prisma: PrismaClient) {

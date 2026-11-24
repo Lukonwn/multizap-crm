@@ -36,6 +36,7 @@ packages/
   integrations/ Contratos dos provedores de canal
   storage/    Armazenamento de arquivos (Railway Bucket / local)
   files/      Leitura e escrita de CSV, TXT e XLSX em streaming
+  tools/      Ferramentas de listas (conversor, divisor, higienizador...)
 prisma/       schema.prisma + migrations
 docs/         Arquitetura, deploy, segurança, ADRs
 ```

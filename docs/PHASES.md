@@ -103,3 +103,40 @@
 **Pendências conhecidas**
 
 - O driver S3 não foi exercitado contra um bucket real neste ambiente (sem bucket disponível). Validar no deploy: enviar uma importação e baixar os rejeitados.
+
+## Fase 4: Ferramentas de processamento ✅
+
+**Entregue**
+
+- **Pacote `@multizap/tools`, com 9 ferramentas:**
+  - conversor CSV/TXT/XLSX;
+  - divisor (por linhas ou em N partes);
+  - comparador de listas;
+  - removedor de duplicados (pelo telefone ou pela linha inteira);
+  - extrator de telefones;
+  - organizadores por DDD e por país;
+  - removedor de linhas vazias;
+  - higienizador: normalização, validação estrutural, DDD e UF, código internacional, tipo, duplicados, incompletos e classificação.
+- **Worker:** fila `file-tools`, progresso por bytes lidos, ZIP automático para saídas múltiplas e notificação em caso de falha.
+- **API:** envio com prévia (cabeçalho e coluna de telefone sugeridos), criação, consulta, download e exclusão de processamentos, com validação de parâmetros por ferramenta.
+- **Painel:**
+  - central de ferramentas, com atalhos para o importador e o exportador de contatos;
+  - tela de execução com prévia do arquivo, seleção de coluna e cabeçalho, opções da ferramenta, progresso, resumo (indicadores e distribuições) e downloads;
+  - processamentos recentes.
+
+**Verificação**
+
+- 150 testes, incluindo 14 das ferramentas, 4 do processador no worker e 4 da API.
+- Navegador, com os builds de produção e uma planilha de 5.000 linhas:
+  - higienizador: 4.850 válidos, 50 duplicados e 100 incompletos; o XLSX de válidos foi aberto e conferido;
+  - organizador por DDD: ZIP válido;
+  - comparador: 1 número em ambas, 2 só na B e 4.899 só na A;
+  - conversor XLSX → CSV: 5.001 linhas, com BOM.
+
+**Correções feitas durante a verificação**
+
+- Os indicadores e as distribuições apareciam fora de ordem, porque o `jsonb` do PostgreSQL não preserva a ordem das chaves. Agora a tela ordena os indicadores e as barras.
+
+**Pendências conhecidas**
+
+- Arquivos enviados para as ferramentas e não usados, e resultados antigos, permanecem no bucket. A limpeza automática (retenção configurável) entra na Fase 9.

@@ -2,7 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
-import type { ImportQueue } from './lib/queues';
+import type { ImportQueue, ToolQueue } from './lib/queues';
+import { toolRoutes } from './modules/tools/routes';
 import { contactRoutes } from './modules/contacts/routes';
 import { importRoutes } from './modules/imports/routes';
 import type { Redis } from 'ioredis';
@@ -26,6 +27,7 @@ declare module 'fastify' {
     gateway: GatewayClient | null;
     storage: StorageDriver | null;
     importQueue: ImportQueue | null;
+    toolQueue: ToolQueue | null;
   }
 }
 
@@ -36,6 +38,7 @@ export interface BuildDeps {
   gateway?: GatewayClient | null;
   storage?: StorageDriver | null;
   importQueue?: ImportQueue | null;
+  toolQueue?: ToolQueue | null;
   logger?: boolean;
 }
 
@@ -46,6 +49,7 @@ export async function buildApp({
   gateway = null,
   storage = null,
   importQueue = null,
+  toolQueue = null,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -74,6 +78,7 @@ export async function buildApp({
   app.decorate('gateway', gateway);
   app.decorate('storage', storage);
   app.decorate('importQueue', importQueue);
+  app.decorate('toolQueue', toolQueue);
 
   await app.register(sensible);
   await app.register(multipart, {
@@ -120,6 +125,7 @@ export async function buildApp({
   await app.register(dashboardRoutes);
   await app.register(contactRoutes);
   await app.register(importRoutes);
+  await app.register(toolRoutes);
 
   return app;
 }

@@ -3,7 +3,7 @@ import { loadConfig } from './config';
 import { buildApp } from './app';
 import { createRedis } from './lib/redis';
 import { GatewayClient } from './lib/gateway';
-import { ImportQueue } from './lib/queues';
+import { ImportQueue, ToolQueue } from './lib/queues';
 import { storageFromEnv } from '@multizap/storage';
 
 const config = loadConfig();
@@ -18,7 +18,8 @@ const gateway =
   redis && config.redisUrl ? new GatewayClient(config.redisUrl, redis, config.queuePrefix) : null;
 const storage = storageFromEnv();
 const importQueue = config.redisUrl ? new ImportQueue(config.redisUrl, config.queuePrefix) : null;
-const app = await buildApp({ config, prisma, redis, gateway, storage, importQueue });
+const toolQueue = config.redisUrl ? new ToolQueue(config.redisUrl, config.queuePrefix) : null;
+const app = await buildApp({ config, prisma, redis, gateway, storage, importQueue, toolQueue });
 
 const bootstrap = await ensureBootstrapAdmin(prisma, config.bootstrapAdmin);
 if (bootstrap === 'created') app.log.info('Administrador inicial criado a partir de ADMIN_EMAIL.');
@@ -30,6 +31,7 @@ const shutdown = async (signal: string) => {
   await app.close();
   await gateway?.close();
   await importQueue?.close();
+  await toolQueue?.close();
   await prisma.$disconnect();
   redis?.disconnect();
   process.exit(0);

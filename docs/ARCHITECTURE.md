@@ -118,3 +118,31 @@ Painel ──POST /accounts/:id/pairing──▶ API ──fila BullMQ "gateway-
 - **Recuperação de falhas:** cada lote marca suas linhas como `IMPORTED` na mesma transação que cria os contatos. Uma queda ou nova tentativa (BullMQ, 3 tentativas com backoff) continua das linhas ainda `VALID`, sem duplicar.
 - **Prevenção de importação duplicada:** um arquivo com o mesmo hash não pode ser reenviado para a mesma instância enquanto houver importação ativa ou concluída.
 - **Validação estrutural apenas:** formato, DDD e tamanho, via libphonenumber. O sistema não consulta se o número tem conta WhatsApp.
+
+## Ferramentas de processamento (Fase 4)
+
+As ferramentas são independentes das instâncias: processam arquivos e não alteram a base de contatos.
+
+```
+Painel ──POST /tools/uploads──▶ API ──▶ bucket (tools/uploads/…) + metadados no Redis (24 h)
+       ──POST /tools/jobs─────▶ API ──▶ file_jobs + fila "file-tools"
+                                         │
+                              worker ◀───┘ runTool() → saídas em disco temporário → bucket (tools/<job>/out/…)
+       ──GET  /tools/jobs/:id (progresso, resumo) · GET …/outputs/:n (download)
+```
+
+| Ferramenta                 | Saídas                                                            |
+| -------------------------- | ----------------------------------------------------------------- |
+| Conversor                  | arquivo no formato escolhido (CSV com BOM + `;`, ou XLSX)         |
+| Divisor                    | partes com o cabeçalho repetido + ZIP                             |
+| Comparador                 | só na A, só na B, em ambas (comparação pelo telefone normalizado) |
+| Removedor de duplicados    | lista sem duplicados + relatório (linha, duplicada da linha)      |
+| Extrator de telefones      | telefones encontrados em qualquer célula ou texto livre           |
+| Organizador por DDD / país | um arquivo por grupo + arquivo com colunas DDD/UF ou país + ZIP   |
+| Removedor de linhas vazias | lista sem linhas vazias                                           |
+| Higienizador               | arquivo completo classificado, válidos (únicos) e rejeitados      |
+
+- O pacote `@multizap/tools` contém funções puras (entrada → saídas) e é testado sem banco.
+- Telefones são analisados com os metadados completos do libphonenumber (`/max`), que trazem tipo (celular ou fixo), país, DDD e UF.
+- A validação é sempre **estrutural**: nenhuma ferramenta consulta o WhatsApp.
+- O worker grava as saídas em disco temporário, o que permite dezenas de saídas simultâneas (por exemplo, uma por DDD) sem consumir memória. Depois envia os arquivos ao bucket e remove o diretório.

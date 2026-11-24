@@ -33,7 +33,7 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 | `DATABASE_URL`            | `${{Postgres.DATABASE_URL}}`                                                                                               |
 | `REDIS_URL`               | `${{Redis.REDIS_URL}}`                                                                                                     |
 | `WEB_ORIGIN`              | URL pública do painel, ex. `https://multizap-web-production.up.railway.app`                                                |
-| `API_PORT`                | `4000`                                                                                                                     |
+| `PORT`                    | `4000` (fixa a porta: o painel acessa a API em `:4000` pela rede privada)                                                  |
 | `CREDENTIALS_MASTER_KEY`  | 32 bytes em base64 (ver abaixo). **Guarde uma cópia fora da Railway**: sem ela, as credenciais salvas não podem ser lidas. |
 | `CREDENTIALS_KEY_VERSION` | `1`                                                                                                                        |
 | `INTERNAL_API_TOKEN`      | String aleatória com 32 caracteres ou mais                                                                                 |

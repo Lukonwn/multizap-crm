@@ -440,3 +440,17 @@
 - Um envio por vez, sem seleção múltipla. Regras mantidas: instância conectada, pausa geral e descadastrados (agora também pela lista de descadastros da instância).
 - Auditoria da conversa iniciada; conversas vazias não poluem a lista.
 - 6 testes de API e 1 de ponta a ponta.
+
+## Diagnóstico da agenda do celular ✅
+
+**Problema** (teste real): "Nova conversa" listava só as pessoas que já tinham conversa; a agenda do celular não chegou. Pista: no primeiro pareamento a sincronização do estado do aplicativo ficou "parada esperando a chave" do celular.
+
+**Entregue**
+
+- O gateway registra no System Health cada etapa da sincronização da agenda ("Agenda (instância): …"), sem depender do log da hospedagem, e o número de contatos entregues.
+- Se a agenda ficar parada, o gateway pede nova sincronização (1,5, 6 e 20 minutos), usando só o recurso oficial da biblioteca.
+- 7 testes novos.
+
+**Pendências**
+
+- A causa real só aparece com um novo pareamento com esta versão. Se o celular nunca enviar a chave, avaliar alternativas com os eventos em mãos.

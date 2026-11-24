@@ -17,6 +17,7 @@ import type {
   WaConnection,
 } from '../session/types';
 import type { DbAuthStore } from './auth-store';
+import type { AppStateMonitor } from './app-state-monitor';
 import { mapAck, mapDisconnect } from './disconnect';
 import { normalizeMessage } from './normalize';
 
@@ -36,6 +37,7 @@ export class BaileysFactory implements ConnectionFactory {
     private readonly store: DbAuthStore,
     private readonly logger: Logger,
     private readonly browserName = 'Chrome',
+    private readonly appState?: AppStateMonitor,
   ) {}
 
   async open(accountId: string, onEvent: (e: ConnEvent) => void): Promise<WaConnection> {
@@ -56,12 +58,38 @@ export class BaileysFactory implements ConnectionFactory {
       saveCreds().catch((err: unknown) => log.error({ err }, 'Falha ao salvar credenciais'));
     });
 
+    // Se a sincronização da agenda ficar parada esperando a chave do celular, tenta de novo
+    // algumas vezes (recurso oficial da biblioteca); depois disso, só o aviso no System Health.
+    const retryTimers: NodeJS.Timeout[] = [];
+    const clearRetries = () => retryTimers.splice(0).forEach(clearTimeout);
+    const scheduleResync = () => {
+      if (!this.appState) return;
+      clearRetries();
+      [90_000, 360_000, 1_200_000].forEach((ms, i) => {
+        const t = setTimeout(() => {
+          const cols = this.appState!.blocked(accountId);
+          if (!cols.length) return;
+          this.appState!.retry(accountId, i + 1, cols);
+          sock
+            .resyncAppState(cols as Parameters<typeof sock.resyncAppState>[0], false)
+            .catch((err: unknown) =>
+              log.warn({ err: String(err) }, 'Nova sincronização da agenda falhou'),
+            );
+        }, ms);
+        t.unref();
+        retryTimers.push(t);
+      });
+    };
+
     sock.ev.on('connection.update', (u) => {
       if (u.qr) onEvent({ type: 'qr', qr: u.qr });
       if (u.connection === 'open') {
+        scheduleResync();
         onEvent({ type: 'open', jid: sock.user?.id ?? '', name: sock.user?.name ?? undefined });
       }
       if (u.connection === 'close') {
+        clearRetries();
+        this.appState?.clear(accountId);
         const err = u.lastDisconnect?.error as
           { output?: { statusCode?: number }; message?: string } | undefined;
         const statusCode = err?.output?.statusCode;
@@ -176,7 +204,10 @@ export class BaileysFactory implements ConnectionFactory {
           throw err;
         }
       },
-      end: () => sock.end(undefined),
+      end: () => {
+        clearRetries();
+        sock.end(undefined);
+      },
       logout: () => sock.logout(),
       sendMessage: async (jid, m) => {
         const content = m.image

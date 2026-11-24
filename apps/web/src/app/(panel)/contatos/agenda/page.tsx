@@ -133,8 +133,9 @@ function AgendaView() {
             <Alert tone="info" title="O WhatsApp ainda não enviou a agenda deste aparelho">
               A agenda e o histórico são entregues pelo WhatsApp ao vincular o aparelho. Se esta
               instância foi pareada antes desta função existir, remova a conexão (ação manual, em
-              Conexões) e pareie de novo. Veja também System Health → Eventos do sistema: o item
-              &ldquo;Sincronização do WhatsApp&rdquo; mostra quantos contatos chegaram.
+              Conexões) e pareie de novo. Veja também System Health → Eventos do sistema: os itens
+              &ldquo;Agenda (…)&rdquo; e &ldquo;Sincronização do WhatsApp&rdquo; mostram o que o
+              WhatsApp entregou e se a sincronização da agenda está parada.
             </Alert>
           ) : (
             <Card>

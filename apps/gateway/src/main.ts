@@ -16,6 +16,7 @@ import { CampaignSender } from './campaigns/sender';
 import { InboxIngest } from './inbox/ingest';
 import { ReplySender } from './inbox/reply-sender';
 import { PhotoSync } from './inbox/photo-sync';
+import { AppStateMonitor } from './whatsapp/app-state-monitor';
 import { storageFromEnv } from '@multizap/storage';
 
 /**
@@ -29,10 +30,30 @@ const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
   base: { service: 'multizap-gateway' },
 });
-const baileysLogger = pino({
-  level: process.env.BAILEYS_LOG_LEVEL ?? 'warn',
-  base: { service: 'baileys' },
-});
+// A biblioteca registra a sincronização da agenda em nível "info": o monitor lê essas linhas
+// (e as transforma em eventos do System Health), mas só repassa ao log o nível configurado.
+const baileysLevel = process.env.BAILEYS_LOG_LEVEL ?? 'warn';
+const appState = new AppStateMonitor((e) => {
+  void (async () => {
+    const acc = await prisma.account.findUnique({
+      where: { id: e.accountId },
+      select: { name: true },
+    });
+    await recordSystemEvent(prisma, {
+      source: 'gateway',
+      level: e.level,
+      type: `app_state_${e.kind}`,
+      message: `Agenda (${acc?.name ?? e.accountId}): ${e.text}`,
+    });
+  })();
+}, pino.levels.values[baileysLevel] ?? 40);
+const baileysLogger = pino(
+  {
+    level: (pino.levels.values[baileysLevel] ?? 40) < 30 ? baileysLevel : 'info',
+    base: { service: 'baileys' },
+  },
+  appState.stream(),
+);
 const log = (msg: string, extra: Record<string, unknown> = {}) => logger.info(extra, msg);
 
 const prisma = getPrisma();
@@ -46,6 +67,7 @@ const factory = new BaileysFactory(
   store,
   baileysLogger,
   process.env.GATEWAY_BROWSER_NAME || 'Chrome',
+  appState,
 );
 const locks = new LockManager(redis, `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`);
 // Armazenamento (imagens de campanhas e mídias recebidas). Opcional: sem ele, só texto.
@@ -63,7 +85,19 @@ const manager = new SessionManager(prisma, redis, factory, store, locks, {
   log,
   onMessages: (accountId, messages, historical) => ingest.ingest(accountId, messages, historical),
   onIdentities: async (accountId, items) => {
-    await ingest.identities.apply(accountId, items);
+    const changed = await ingest.identities.apply(accountId, items);
+    if (items.length >= 3) {
+      const acc = await prisma.account.findUnique({
+        where: { id: accountId },
+        select: { name: true },
+      });
+      await recordSystemEvent(prisma, {
+        source: 'gateway',
+        level: 'info',
+        type: 'contacts_received',
+        message: `Agenda (${acc?.name ?? accountId}): o WhatsApp entregou ${items.length} contatos (${changed} novos ou atualizados).`,
+      });
+    }
   },
   onHistory: async (accountId, h) => {
     const acc = await prisma.account.findUnique({

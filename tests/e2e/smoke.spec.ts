@@ -150,7 +150,10 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByLabel('Modelo').fill('openai/gpt-4o-mini');
   await page.getByRole('button', { name: 'Criar agente' }).click();
   await expect(page.getByRole('heading', { name: 'Atendente E2E' })).toBeVisible();
-  await expect(page.getByLabel('Modo de resposta')).toHaveValue('REVIEW');
+  await expect(page.getByRole('tab', { name: 'Revisão humana' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await expect(page.getByRole('button', { name: /Ativar/ })).toBeDisabled();
 
   await page.getByRole('button', { name: 'Publicar versão' }).click();

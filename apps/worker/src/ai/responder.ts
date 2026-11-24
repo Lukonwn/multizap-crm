@@ -208,7 +208,8 @@ export class AiResponder {
       { memory, contactName: conv.contact?.name ?? conv.title },
     );
 
-    const auto = spec.agent.mode === 'AUTO';
+    // O modo é um interruptor operacional: vale na hora, sem nova publicação.
+    const auto = agent.mode === 'AUTO';
     const typing = auto && agent.showTyping;
     if (typing) await this.presence(conv.accountId, jid, 'composing');
     let result;

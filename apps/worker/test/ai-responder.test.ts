@@ -189,6 +189,21 @@ describe('MultiZap AI: atendimento', () => {
     expect(await prisma.aiDraft.findFirst()).toMatchObject({ status: 'SENT', autoSent: true });
   });
 
+  it('o interruptor de modo vale na hora, sem nova publicação (versão publicada em revisão, agente em automático)', async () => {
+    const c = await setup('REVIEW');
+    await prisma.aiAgent.update({ where: { id: c.agentId }, data: { mode: 'AUTO' } });
+    expect(await run(c)).toEqual({ status: 'sent' });
+    expect(sent.map((x) => x.type)).toContain('send-reply');
+    expect(await prisma.aiDraft.findFirst()).toMatchObject({ status: 'SENT', autoSent: true });
+  });
+
+  it('voltar para revisão humana interrompe o envio automático na hora', async () => {
+    const c = await setup('AUTO');
+    await prisma.aiAgent.update({ where: { id: c.agentId }, data: { mode: 'REVIEW' } });
+    expect(await run(c)).toEqual({ status: 'drafted' });
+    expect(sent).toEqual([]);
+  });
+
   it('sem "digitando" quando o agente desliga o recurso', async () => {
     const c = await setup('AUTO');
     await prisma.aiAgent.update({ where: { id: c.agentId }, data: { showTyping: false } });

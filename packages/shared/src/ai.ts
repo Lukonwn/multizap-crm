@@ -149,8 +149,6 @@ export interface AgentDTO {
   minIntervalSeconds: number;
   showTyping: boolean;
   maxRepliesPerHour: number;
-  /** Modo da versão publicada (é o que vale no atendimento); null se não publicado. */
-  publishedMode: (typeof AGENT_MODES)[number] | null;
   publishedVersion: { id: string; number: number; createdAt: string } | null;
   /** Há alterações (no agente ou na persona) ainda não publicadas. */
   hasUnpublishedChanges: boolean;

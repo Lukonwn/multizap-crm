@@ -475,7 +475,7 @@
 ## MultiZap AI: Entrega 2 (atendimento real) ✅
 
 - **Ativar e pausar** agentes por instância (um agente ativo por instância; exige versão publicada, instância e chave da OpenRouter).
-- **Respostas às mensagens recebidas** pelo worker: revisão humana (padrão) ou automático (por agente, com aviso de risco).
+- **Respostas às mensagens recebidas** pelo worker: revisão humana (padrão) ou automático, por um interruptor na tela do agente que vale na hora (sem publicar) e pede confirmação ao ligar o automático.
 - **Atendimentos** (nova aba em MultiZap AI): conversas atendidas pela IA, rascunhos para aprovar/editar/descartar, pausar e retomar a IA por conversa, liberar contato de campanha e ver o motivo quando a IA não responde.
 - **Pessoa assume:** responder pela Central (ou pelo celular) pausa a IA naquela conversa.
 - **Segurança:** campanha recente (7 dias), descadastro, pausa global, grupos, limites por hora, uma resposta por mensagem, só a mensagem mais recente responde.

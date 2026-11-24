@@ -159,6 +159,24 @@ describe('ativar e pausar agentes', () => {
   });
 });
 
+describe('interruptor do modo de resposta', () => {
+  it('troca na hora (automático e revisão) sem marcar alterações não publicadas', async () => {
+    const w = await world();
+    expect((await get(`/ai/agents/${w.agent.id}`)).json().agent).toMatchObject({
+      mode: 'REVIEW',
+      hasUnpublishedChanges: false,
+    });
+    let r = await send('PATCH', `/ai/agents/${w.agent.id}`, { mode: 'AUTO' });
+    expect(r.json().agent).toMatchObject({ mode: 'AUTO', hasUnpublishedChanges: false });
+    r = await send('PATCH', `/ai/agents/${w.agent.id}`, { mode: 'REVIEW' });
+    expect(r.json().agent).toMatchObject({ mode: 'REVIEW', hasUnpublishedChanges: false });
+    // outras mudanças continuam exigindo publicação
+    r = await send('PATCH', `/ai/agents/${w.agent.id}`, { instructions: 'Novo texto' });
+    expect(r.json().agent.hasUnpublishedChanges).toBe(true);
+    expect((await send('PATCH', `/ai/agents/${w.agent.id}`, { mode: 'XYZ' })).statusCode).toBe(400);
+  });
+});
+
 describe('rascunhos da IA (revisão humana)', () => {
   it('lista, aprova com edição e envia pelo gateway marcando a mensagem como da IA', async () => {
     const w = await world();

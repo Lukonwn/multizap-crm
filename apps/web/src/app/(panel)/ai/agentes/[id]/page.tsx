@@ -21,6 +21,7 @@ import {
   CardTitle,
   Field,
   Input,
+  Segmented,
   Select,
   Spinner,
 } from '@multizap/ui';
@@ -49,7 +50,6 @@ interface Draft {
   maxTokens: string;
   instructions: string;
   memoryEnabled: boolean;
-  mode: AgentDTO['mode'];
 }
 
 const toDraft = (a: AgentDTO): Draft => ({
@@ -60,7 +60,6 @@ const toDraft = (a: AgentDTO): Draft => ({
   maxTokens: String(a.maxTokens),
   instructions: a.instructions ?? '',
   memoryEnabled: a.memoryEnabled,
-  mode: a.mode,
 });
 
 function GeneralCard({ agent }: { agent: AgentDTO }) {
@@ -92,7 +91,6 @@ function GeneralCard({ agent }: { agent: AgentDTO }) {
               maxTokens: Number(d.maxTokens),
               instructions: d.instructions,
               memoryEnabled: d.memoryEnabled,
-              mode: d.mode,
             },
           },
           { onSuccess: () => setSaved(true) },
@@ -120,27 +118,6 @@ function GeneralCard({ agent }: { agent: AgentDTO }) {
               ))}
             </Select>
           </Field>
-          <Field
-            label="Modo de resposta"
-            htmlFor="ag-mode"
-            hint={
-              d.mode === 'AUTO'
-                ? 'As respostas serão enviadas sem revisão. Use apenas depois de testar bastante.'
-                : 'Cada resposta vira um rascunho para você aprovar antes do envio.'
-            }
-          >
-            <Select
-              id="ag-mode"
-              value={d.mode}
-              onChange={(e) => set({ mode: e.target.value as Draft['mode'] })}
-            >
-              {AGENT_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {AGENT_MODE_LABEL[m]}
-                </option>
-              ))}
-            </Select>
-          </Field>
           <label className="flex items-center gap-2 self-end pb-2 text-sm text-fg">
             <input
               type="checkbox"
@@ -150,14 +127,6 @@ function GeneralCard({ agent }: { agent: AgentDTO }) {
             />
             Lembrar das conversas com cada contato
           </label>
-          {d.mode === 'AUTO' && (
-            <div className="sm:col-span-2">
-              <Alert tone="warning" title="Modo automático">
-                O agente responderá sozinho às mensagens recebidas. Respostas automáticas em excesso
-                podem levar o WhatsApp a restringir o número.
-              </Alert>
-            </div>
-          )}
           <div className="sm:col-span-2">
             <Field
               label="Instruções do agente"
@@ -298,6 +267,51 @@ function AccountsCard({ agent }: { agent: AgentDTO }) {
         >
           Salvar instâncias
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModeCard({ agent }: { agent: AgentDTO }) {
+  const save = useAiMutation();
+  const auto = agent.mode === 'AUTO';
+  const change = (mode: AgentDTO['mode']) => {
+    if (
+      mode === 'AUTO' &&
+      !window.confirm(
+        'Modo automático: o agente responde sozinho, na hora, a todas as mensagens recebidas, sem revisão. Respostas automáticas em excesso podem levar o WhatsApp a restringir o número. Ligar o automático?',
+      )
+    )
+      return;
+    save.mutate({ path: `/ai/agents/${agent.id}`, method: 'PATCH', json: { mode } });
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Como o agente responde</CardTitle>
+        <CardDescription>
+          Vale na hora, sem publicar. Você pode trocar quando quiser.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Segmented
+          value={agent.mode}
+          onChange={change}
+          options={AGENT_MODES.map((m) => ({ value: m, label: AGENT_MODE_LABEL[m] }))}
+        />
+        <p className="text-sm text-muted">
+          {auto
+            ? 'Automático: o agente responde sozinho, assim que a mensagem chega (após o intervalo de envio). Nada espera por você.'
+            : 'Revisão humana: cada resposta vira um rascunho em Atendimentos e só vai ao contato depois que você aprovar.'}
+        </p>
+        {auto && (
+          <Alert tone="warning">
+            Respostas automáticas em volume podem levar o WhatsApp a restringir o número. Para
+            assumir uma conversa, basta responder você mesmo pela Central: a IA pausa nela.
+          </Alert>
+        )}
+        {save.error && <Alert tone="danger">{(save.error as Error).message}</Alert>}
+        {save.isPending && <Spinner />}
       </CardContent>
     </Card>
   );
@@ -594,7 +608,7 @@ export default function AgentPage() {
               title={!a.publishedVersion ? 'Publique uma versão antes de ativar' : undefined}
               onClick={() => {
                 if (
-                  a.publishedMode === 'AUTO' &&
+                  a.mode === 'AUTO' &&
                   !window.confirm(
                     'Modo automático: o agente vai responder sozinho às mensagens recebidas, sem revisão. Respostas automáticas em excesso podem levar o WhatsApp a restringir o número. Ativar mesmo assim?',
                   )
@@ -621,10 +635,10 @@ export default function AgentPage() {
       {toggle.error && <Alert tone="danger">{(toggle.error as Error).message}</Alert>}
       {a.status === 'ACTIVE' ? (
         <Alert
-          tone={a.publishedMode === 'AUTO' ? 'warning' : 'success'}
+          tone={a.mode === 'AUTO' ? 'warning' : 'success'}
           title={`Atendendo ${a.accounts.length} instância(s) com a v${a.publishedVersion?.number ?? '?'}`}
         >
-          {a.publishedMode === 'AUTO'
+          {a.mode === 'AUTO'
             ? 'Modo automático: as respostas são enviadas sem revisão.'
             : 'Revisão humana: cada resposta espera sua aprovação em Atendimentos.'}{' '}
           <Link className="underline" href="/ai/atendimentos">
@@ -650,6 +664,7 @@ export default function AgentPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <GeneralCard agent={a} />
         <div className="space-y-6">
+          <ModeCard agent={a} />
           <PublishCard agent={a} />
           <AccountsCard agent={a} />
           <OperationCard agent={a} />

@@ -165,7 +165,9 @@ const phoneOfJid = (jid: string | null | undefined) => {
 
 function toAgentDTO(a: AgentRow): AgentDTO {
   const current = stable(snapshotOf(a, a.persona));
-  const published = a.publishedVersion ? stable(a.publishedVersion.snapshot) : null;
+  // O modo de resposta vale na hora (interruptor operacional): não conta como alteração não publicada.
+  const snap = a.publishedVersion?.snapshot as unknown as AgentSnapshot | null;
+  const published = snap ? stable({ ...snap, agent: { ...snap.agent, mode: a.mode } }) : null;
   return {
     id: a.id,
     name: a.name,
@@ -181,9 +183,6 @@ function toAgentDTO(a: AgentRow): AgentDTO {
     minIntervalSeconds: a.minIntervalSeconds,
     showTyping: a.showTyping,
     maxRepliesPerHour: a.maxRepliesPerHour,
-    publishedMode:
-      (a.publishedVersion?.snapshot as { agent?: { mode?: AgentDTO['mode'] } } | null)?.agent
-        ?.mode ?? null,
     publishedVersion: a.publishedVersion
       ? {
           id: a.publishedVersion.id,

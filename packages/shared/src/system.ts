@@ -165,6 +165,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'contact.updated': 'Contato editado',
   'contact.deleted': 'Contato excluído',
   'contact.exported': 'Contatos exportados',
+  'contact.imported_from_device': 'Contatos importados da agenda do aparelho',
   'contact.opted_out': 'Contato descadastrado',
   'contact.resubscribed': 'Contato reautorizado',
   'import.uploaded': 'Arquivo de importação enviado',

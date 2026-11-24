@@ -24,7 +24,16 @@ export type ConnEvent =
   /** Mensagens recebidas pela sessão. historical = histórico entregue pelo WhatsApp (não conta como nova). */
   | { type: 'messages'; messages: IncomingMessage[]; historical: boolean }
   /** Nomes e correspondência LID ↔ telefone que o WhatsApp entrega ao aparelho conectado. */
-  | { type: 'identities'; items: IdentityUpdate[] };
+  | { type: 'identities'; items: IdentityUpdate[] }
+  /** Resumo do que o WhatsApp entregou na sincronização inicial (diagnóstico). */
+  | {
+      type: 'history';
+      chats: number;
+      contacts: number;
+      messages: number;
+      lidMappings: number;
+      progress: number | null;
+    };
 
 /** Dados de identidade de um contato, como entregues pelo WhatsApp à sessão. */
 export interface IdentityUpdate {

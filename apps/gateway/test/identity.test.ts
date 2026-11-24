@@ -119,6 +119,21 @@ describe('conversas por LID (como o WhatsApp entrega hoje)', () => {
   });
 });
 
+describe('resiliência', () => {
+  it('falha ao registrar identidade nunca impede a gravação da mensagem', async () => {
+    const broken = new InboxIngest(prisma, null);
+    broken.identities.apply = async () => {
+      throw new Error('tabela indisponível');
+    };
+    broken.identities.lookup = async () => {
+      throw new Error('tabela indisponível');
+    };
+    await broken.ingest(accountId, [msg({ id: 'R1', pushName: 'Joana' })], false);
+    expect(await prisma.message.count({ where: { providerMessageId: 'R1' } })).toBe(1);
+    expect((await prisma.conversation.findFirstOrThrow()).title).toBe('Joana');
+  });
+});
+
 describe('leitura das mensagens', () => {
   const wa = (m: object): WAMessage =>
     ({ key: { id: 'X', remoteJid: LID }, messageTimestamp: 1_790_000_000, ...m }) as WAMessage;

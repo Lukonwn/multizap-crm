@@ -15,6 +15,9 @@ No primeiro teste com um número real, a Central mostrou conversas como "Contato
 5. **Fotos de perfil:** só de conversas que já existem e tiveram movimento nos últimos 30 dias, 8 por rodada por instância, com pausa entre consultas, nova verificação a cada 7 dias e pausa de 30 minutos ao receber limite de taxa. Nunca consulta números avulsos. A foto é guardada no bucket (`avatars/…`) e servida pela API; como pode ser obtida de novo, não entra no backup.
 6. **Tipos de mensagem:** mais tipos reconhecidos (enquete, álbum, evento, respostas de botão e lista, vídeo redondo, localização ao vivo). Um tipo ainda não tratado mostra o nome técnico e gera um evento no System Health (uma vez por tipo).
 
+7. **Agenda do aparelho** (Contatos → Agenda do aparelho): lista, por instância, o que o WhatsApp entregou (nome da agenda, perfil, telefone), com pesquisa. O administrador escolhe quem importar para Contatos; a importação pede confirmação, grava origem "Agenda do aparelho conectado", **consentimento PENDENTE** (nunca concedido), mantém descadastrados como descadastrados e não altera telefones que já existem. Fica na auditoria.
+8. **Diagnóstico:** cada sincronização inicial gera o evento "Sincronização do WhatsApp" (System Health → Eventos) com o número de conversas, mensagens, contatos e correspondências LID recebidos; uma falha ao registrar identidades nunca impede a gravação da mensagem.
+
 ## Limites conhecidos
 
 - O que o WhatsApp entrega depende dele: ao vincular, o aparelho envia o histórico recente e a agenda **uma vez**. Quem vinculou antes desta correção pode precisar **desconectar e parear de novo** para receber os nomes da agenda.

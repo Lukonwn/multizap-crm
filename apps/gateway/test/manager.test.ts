@@ -26,10 +26,23 @@ let store: SpyStore;
 let managers: SessionManager[] = [];
 let ownerSeq = 0;
 
-function makeManager(opts: { backoffMs?: number[]; owner?: string } = {}) {
+function makeManager(
+  opts: {
+    backoffMs?: number[];
+    owner?: string;
+    onHistory?: ConstructorParameters<typeof SessionManager>[5] extends infer O
+      ? O extends { onHistory?: infer H }
+        ? H
+        : never
+      : never;
+    onIdentities?: (accountId: string, items: unknown[]) => Promise<void>;
+  } = {},
+) {
   const locks = new LockManager(redis, opts.owner ?? `test-${++ownerSeq}`);
   const m = new SessionManager(prisma, redis, factory, store, locks, {
     backoffMs: opts.backoffMs ?? [20],
+    onHistory: opts.onHistory,
+    onIdentities: opts.onIdentities as never,
   });
   managers.push(m);
   return m;
@@ -242,6 +255,30 @@ describe('persistência das conexões', () => {
       (await prisma.integration.findUniqueOrThrow({ where: { accountId: id } })).credentialsEnc,
     ).not.toBeNull();
     factory.open = open;
+  });
+
+  it('repassa o resumo da sincronização e as identidades entregues pelo WhatsApp', async () => {
+    const id = await account({ paired: true, status: 'CONNECTED' });
+    const history: unknown[] = [];
+    const identities: unknown[] = [];
+    const m = makeManager({
+      onHistory: async (_a, h) => void history.push(h),
+      onIdentities: async (_a, items) => void identities.push(...items),
+    });
+    await m.reconcile();
+    const c = factory.last(id);
+    c.emit({
+      type: 'history',
+      chats: 3,
+      contacts: 120,
+      messages: 9,
+      lidMappings: 40,
+      progress: 100,
+    });
+    c.emit({ type: 'identities', items: [{ id: '1@lid', savedName: 'Ana' }] });
+    await vi.waitFor(() => expect(history).toHaveLength(1));
+    expect(history[0]).toMatchObject({ chats: 3, contacts: 120, lidMappings: 40 });
+    expect(identities).toEqual([{ id: '1@lid', savedName: 'Ana' }]);
   });
 
   it('falha temporária: reconecta com backoff sem apagar credenciais', async () => {

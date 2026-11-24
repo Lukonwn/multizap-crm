@@ -131,12 +131,23 @@ export class BaileysFactory implements ConnectionFactory {
     });
 
     // Histórico recente, agenda e correspondência LID ↔ telefone entregues ao vincular o dispositivo.
-    sock.ev.on('messaging-history.set', ({ messages, contacts, lidPnMappings }) => {
-      emitIdentities(toIdentities(contacts ?? [], lidPnMappings ?? []));
-      void toIncoming(messages).then((incoming) => {
-        if (incoming.length) onEvent({ type: 'messages', messages: incoming, historical: true });
-      });
-    });
+    sock.ev.on(
+      'messaging-history.set',
+      ({ messages, contacts, lidPnMappings, chats, progress }) => {
+        onEvent({
+          type: 'history',
+          chats: chats?.length ?? 0,
+          contacts: contacts?.length ?? 0,
+          messages: messages?.length ?? 0,
+          lidMappings: lidPnMappings?.length ?? 0,
+          progress: progress ?? null,
+        });
+        emitIdentities(toIdentities(contacts ?? [], lidPnMappings ?? []));
+        void toIncoming(messages).then((incoming) => {
+          if (incoming.length) onEvent({ type: 'messages', messages: incoming, historical: true });
+        });
+      },
+    );
     sock.ev.on('contacts.upsert', (contacts) => emitIdentities(toIdentities(contacts)));
     sock.ev.on('contacts.update', (contacts) =>
       emitIdentities(toIdentities(contacts as Contact[])),

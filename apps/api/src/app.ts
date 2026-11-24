@@ -22,6 +22,7 @@ import { accountRoutes } from './modules/accounts/routes';
 import { notificationRoutes } from './modules/notifications/routes';
 import { dashboardRoutes } from './modules/dashboard/routes';
 import { systemRoutes } from './modules/system/routes';
+import { deviceContactRoutes } from './modules/device-contacts/routes';
 import type { GatewayClient } from './lib/gateway';
 
 declare module 'fastify' {
@@ -148,6 +149,7 @@ export async function buildApp({
   await app.register(inboxRoutes);
   await app.register(reportRoutes);
   await app.register(systemRoutes);
+  await app.register(deviceContactRoutes);
 
   return app;
 }

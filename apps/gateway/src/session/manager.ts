@@ -59,6 +59,11 @@ export interface ManagerOptions {
   ) => Promise<void>;
   /** Recebe nomes e correspondências LID ↔ telefone entregues pelo WhatsApp. */
   onIdentities?: (accountId: string, items: import('./types').IdentityUpdate[]) => Promise<void>;
+  /** Resumo da sincronização inicial entregue pelo WhatsApp. */
+  onHistory?: (
+    accountId: string,
+    summary: Extract<import('./types').ConnEvent, { type: 'history' }>,
+  ) => Promise<void>;
 }
 
 const DEFAULT_BACKOFF = [2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
@@ -87,6 +92,7 @@ export class SessionManager {
   private readonly log: NonNullable<ManagerOptions['log']>;
   private readonly onMessages: ManagerOptions['onMessages'];
   private readonly onIdentities: ManagerOptions['onIdentities'];
+  private readonly onHistory: ManagerOptions['onHistory'];
   private generationSeq = 0;
   private shuttingDown = false;
 
@@ -104,6 +110,7 @@ export class SessionManager {
     this.log = opts.log ?? (() => undefined);
     this.onMessages = opts.onMessages;
     this.onIdentities = opts.onIdentities;
+    this.onHistory = opts.onHistory;
   }
 
   get activeCount(): number {
@@ -482,6 +489,9 @@ export class SessionManager {
         return;
       case 'identities':
         if (this.onIdentities) await this.onIdentities(accountId, e.items);
+        return;
+      case 'history':
+        if (this.onHistory) await this.onHistory(accountId, e);
         return;
     }
   }

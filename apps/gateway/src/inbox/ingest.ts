@@ -55,13 +55,22 @@ export class InboxIngest {
 
     // Identidade: registra a correspondência LID ↔ telefone e o nome de perfil, e resolve
     // o telefone de conversas endereçadas por LID quando o WhatsApp já o informou.
-    if (m.lidJid) await this.identities.apply(accountId, [{ lid: m.lidJid, phoneJid: m.chatJid }]);
-    if (!m.fromMe && m.pushName)
-      await this.identities.apply(accountId, [{ id: m.lidJid ?? m.chatJid, pushName: m.pushName }]);
-    const known = await this.identities.lookup(accountId, m.lidJid ?? m.chatJid);
-    if (!m.phoneE164 && known?.phoneE164 && known.phoneJid && isLidJid(m.chatJid))
-      m = { ...m, chatJid: known.phoneJid, phoneE164: known.phoneE164 };
-    const identityName = known?.name ?? null;
+    // Qualquer falha aqui é registrada, mas NUNCA impede a gravação da mensagem.
+    let identityName: string | null = null;
+    try {
+      if (m.lidJid)
+        await this.identities.apply(accountId, [{ lid: m.lidJid, phoneJid: m.chatJid }]);
+      if (!m.fromMe && m.pushName)
+        await this.identities.apply(accountId, [
+          { id: m.lidJid ?? m.chatJid, pushName: m.pushName },
+        ]);
+      const known = await this.identities.lookup(accountId, m.lidJid ?? m.chatJid);
+      if (!m.phoneE164 && known?.phoneE164 && known.phoneJid && isLidJid(m.chatJid))
+        m = { ...m, chatJid: known.phoneJid, phoneE164: known.phoneE164 };
+      identityName = known?.name ?? null;
+    } catch (err) {
+      this.log('Identidade não aplicada', { accountId, id: m.id, err: String(err) });
+    }
 
     if (m.kind && !this.unknownKinds.has(m.kind) && m.type === 'other' && m.text?.startsWith('(')) {
       this.unknownKinds.add(m.kind);

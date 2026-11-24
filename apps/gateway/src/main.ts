@@ -65,6 +65,18 @@ const manager = new SessionManager(prisma, redis, factory, store, locks, {
   onIdentities: async (accountId, items) => {
     await ingest.identities.apply(accountId, items);
   },
+  onHistory: async (accountId, h) => {
+    const acc = await prisma.account.findUnique({
+      where: { id: accountId },
+      select: { name: true },
+    });
+    await recordSystemEvent(prisma, {
+      source: 'gateway',
+      level: 'info',
+      type: 'history_received',
+      message: `Sincronização do WhatsApp (${acc?.name ?? accountId}): ${h.chats} conversas, ${h.messages} mensagens, ${h.contacts} contatos e ${h.lidMappings} correspondências de LID${h.progress !== null ? ` (progresso ${h.progress}%)` : ''}.`,
+    });
+  },
 });
 // Fotos de perfil das conversas existentes (devagar, poucas por vez).
 const stopPhotos = storage ? new PhotoSync(prisma, storage, manager, log).start() : () => undefined;

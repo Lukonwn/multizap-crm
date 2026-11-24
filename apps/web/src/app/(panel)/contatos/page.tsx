@@ -12,6 +12,7 @@ import {
   Tags,
   Upload,
   Users,
+  Smartphone,
 } from 'lucide-react';
 import { CONSENT_LABEL, ORIGIN_LABEL, formatPhone, type ContactListQuery } from '@multizap/shared';
 import {
@@ -122,6 +123,11 @@ function ContactsView() {
             <Button variant="secondary" asChild>
               <Link href={`/contatos/importar?conta=${accountId}`}>
                 <Upload className="h-4 w-4" aria-hidden /> Importar lista
+              </Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href={`/contatos/agenda?conta=${accountId}`}>
+                <Smartphone className="h-4 w-4" aria-hidden /> Agenda do aparelho
               </Link>
             </Button>
             <Button variant="secondary" onClick={() => setTagsOpen(true)}>

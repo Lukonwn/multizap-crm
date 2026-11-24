@@ -57,7 +57,8 @@ export class LocalStorage implements StorageDriver {
   private path(key: string): string {
     assertKey(key);
     const p = resolve(this.root, key);
-    if (!p.startsWith(this.root + sep)) throw new Error('Caminho fora do diretório de armazenamento.');
+    if (!p.startsWith(this.root + sep))
+      throw new Error('Caminho fora do diretório de armazenamento.');
     return p;
   }
 
@@ -78,7 +79,10 @@ export class LocalStorage implements StorageDriver {
   }
 
   async exists(key: string): Promise<boolean> {
-    return stat(this.path(key)).then(() => true, () => false);
+    return stat(this.path(key)).then(
+      () => true,
+      () => false,
+    );
   }
 
   async check(): Promise<void> {
@@ -130,7 +134,11 @@ export class S3Storage implements StorageDriver {
     });
   }
 
-  async put(key: string, body: Readable | Buffer, opts: { contentType?: string } = {}): Promise<void> {
+  async put(
+    key: string,
+    body: Readable | Buffer,
+    opts: { contentType?: string } = {},
+  ): Promise<void> {
     assertKey(key);
     // Upload multipart em streaming: suporta arquivos grandes sem carregar em memória.
     await new Upload({
@@ -159,7 +167,8 @@ export class S3Storage implements StorageDriver {
       await this.client.send(new HeadObjectCommand({ Bucket: this.opts.bucket, Key: key }));
       return true;
     } catch (err) {
-      if ((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) return false;
+      if ((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)
+        return false;
       throw err;
     }
   }
@@ -172,10 +181,15 @@ export class S3Storage implements StorageDriver {
     let token: string | undefined;
     do {
       const r = await this.client.send(
-        new ListObjectsV2Command({ Bucket: this.opts.bucket, Prefix: prefix, ContinuationToken: token }),
+        new ListObjectsV2Command({
+          Bucket: this.opts.bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+        }),
       );
       for (const o of r.Contents ?? []) {
-        if (o.Key) yield { key: o.Key, size: o.Size ?? 0, lastModified: o.LastModified ?? new Date(0) };
+        if (o.Key)
+          yield { key: o.Key, size: o.Size ?? 0, lastModified: o.LastModified ?? new Date(0) };
       }
       token = r.IsTruncated ? r.NextContinuationToken : undefined;
     } while (token);
@@ -189,9 +203,14 @@ export class S3Storage implements StorageDriver {
 export function storageFromEnv(env: NodeJS.ProcessEnv = process.env): StorageDriver {
   const driver = env.STORAGE_DRIVER ?? (env.STORAGE_S3_BUCKET ? 's3' : 'local');
   if (driver === 's3') {
-    const required = ['STORAGE_S3_BUCKET', 'STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY'] as const;
+    const required = [
+      'STORAGE_S3_BUCKET',
+      'STORAGE_S3_ACCESS_KEY_ID',
+      'STORAGE_S3_SECRET_ACCESS_KEY',
+    ] as const;
     const missing = required.filter((k) => !env[k]);
-    if (missing.length) throw new Error(`Armazenamento S3 incompleto: defina ${missing.join(', ')}.`);
+    if (missing.length)
+      throw new Error(`Armazenamento S3 incompleto: defina ${missing.join(', ')}.`);
     return new S3Storage({
       endpoint: env.STORAGE_S3_ENDPOINT,
       region: env.STORAGE_S3_REGION || 'auto',
@@ -218,8 +237,13 @@ export function backupStorageFromEnv(env: NodeJS.ProcessEnv = process.env): Stor
   if (env.BACKUP_S3_BUCKET) {
     const required = ['BACKUP_S3_ACCESS_KEY_ID', 'BACKUP_S3_SECRET_ACCESS_KEY'] as const;
     const missing = required.filter((k) => !env[k]);
-    if (missing.length) throw new Error(`Bucket de backup incompleto: defina ${missing.join(', ')}.`);
-    if (env.STORAGE_S3_BUCKET && env.BACKUP_S3_BUCKET === env.STORAGE_S3_BUCKET && (env.BACKUP_S3_ENDPOINT ?? '') === (env.STORAGE_S3_ENDPOINT ?? '')) {
+    if (missing.length)
+      throw new Error(`Bucket de backup incompleto: defina ${missing.join(', ')}.`);
+    if (
+      env.STORAGE_S3_BUCKET &&
+      env.BACKUP_S3_BUCKET === env.STORAGE_S3_BUCKET &&
+      (env.BACKUP_S3_ENDPOINT ?? '') === (env.STORAGE_S3_ENDPOINT ?? '')
+    ) {
       throw new Error('O bucket de backup deve ser diferente do bucket principal.');
     }
     return new S3Storage({

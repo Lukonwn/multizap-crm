@@ -34,8 +34,17 @@ describe('LocalStorage', () => {
 
   it('exige Railway Bucket em produção', () => {
     expect(() => storageFromEnv({ NODE_ENV: 'production' })).toThrow(/Railway Bucket/);
-    expect(() => storageFromEnv({ STORAGE_DRIVER: 's3', STORAGE_S3_BUCKET: 'b' })).toThrow(/incompleto/);
-    expect(storageFromEnv({ STORAGE_DRIVER: 's3', STORAGE_S3_BUCKET: 'b', STORAGE_S3_ACCESS_KEY_ID: 'k', STORAGE_S3_SECRET_ACCESS_KEY: 's' }).kind).toBe('s3');
+    expect(() => storageFromEnv({ STORAGE_DRIVER: 's3', STORAGE_S3_BUCKET: 'b' })).toThrow(
+      /incompleto/,
+    );
+    expect(
+      storageFromEnv({
+        STORAGE_DRIVER: 's3',
+        STORAGE_S3_BUCKET: 'b',
+        STORAGE_S3_ACCESS_KEY_ID: 'k',
+        STORAGE_S3_SECRET_ACCESS_KEY: 's',
+      }).kind,
+    ).toBe('s3');
     expect(storageFromEnv({ NODE_ENV: 'development' }).kind).toBe('local');
   });
 });
@@ -65,10 +74,24 @@ describe('list e backupStorageFromEnv', () => {
     expect(backupStorageFromEnv({})).toBeNull();
     expect(() => backupStorageFromEnv({ BACKUP_S3_BUCKET: 'b' })).toThrow(/incompleto/);
     expect(() =>
-      backupStorageFromEnv({ BACKUP_S3_BUCKET: 'b', BACKUP_S3_ACCESS_KEY_ID: 'k', BACKUP_S3_SECRET_ACCESS_KEY: 's', STORAGE_S3_BUCKET: 'b' }),
+      backupStorageFromEnv({
+        BACKUP_S3_BUCKET: 'b',
+        BACKUP_S3_ACCESS_KEY_ID: 'k',
+        BACKUP_S3_SECRET_ACCESS_KEY: 's',
+        STORAGE_S3_BUCKET: 'b',
+      }),
     ).toThrow(/diferente/);
-    expect(backupStorageFromEnv({ BACKUP_S3_BUCKET: 'bk', BACKUP_S3_ACCESS_KEY_ID: 'k', BACKUP_S3_SECRET_ACCESS_KEY: 's', STORAGE_S3_BUCKET: 'b' })?.kind).toBe('s3');
-    expect(() => backupStorageFromEnv({ BACKUP_LOCAL_DIR: '/tmp/x', NODE_ENV: 'production' })).toThrow();
+    expect(
+      backupStorageFromEnv({
+        BACKUP_S3_BUCKET: 'bk',
+        BACKUP_S3_ACCESS_KEY_ID: 'k',
+        BACKUP_S3_SECRET_ACCESS_KEY: 's',
+        STORAGE_S3_BUCKET: 'b',
+      })?.kind,
+    ).toBe('s3');
+    expect(() =>
+      backupStorageFromEnv({ BACKUP_LOCAL_DIR: '/tmp/x', NODE_ENV: 'production' }),
+    ).toThrow();
     expect(backupStorageFromEnv({ BACKUP_LOCAL_DIR: '/tmp/x' })?.kind).toBe('local');
   });
 });

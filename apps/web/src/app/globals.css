@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '../../../../packages/ui/src/styles.css';
+
+/* Tailwind deve escanear os componentes do design system. */
+@source '../../../../packages/ui/src';

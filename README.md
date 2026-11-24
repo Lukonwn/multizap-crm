@@ -1,0 +1,78 @@
+# MultiZap CRM
+
+CRM privado para gerenciar até **10 contas WhatsApp** em um único painel administrativo: conexões persistentes, contatos isolados por instância, ferramentas de listas, biblioteca de criativos, campanhas assistidas, central de mensagens e relatórios.
+
+> Uso exclusivo do administrador. Não é um SaaS: não há planos, pagamentos nem cadastro de clientes.
+
+## Status
+
+| Fase | Escopo                                                | Status       |
+| ---- | ----------------------------------------------------- | ------------ |
+| 1    | Fundação, autenticação e design system                | ✅ Concluída |
+| 2    | Dashboard e conexões (QR Code / código de pareamento) | ⏳ Próxima   |
+| 3    | Contatos e importações                                | —            |
+| 4    | Ferramentas de processamento                          | —            |
+| 5    | Biblioteca de criativos                               | —            |
+| 6    | Campanhas assistidas                                  | —            |
+| 7    | Central de mensagens                                  | —            |
+| 8    | Relatórios e analytics                                | —            |
+| 9    | System Health e segurança                             | —            |
+| 10   | Testes, documentação e produção                       | —            |
+
+Detalhes e registro de cada fase: [`docs/PHASES.md`](docs/PHASES.md).
+
+## Estrutura
+
+```
+apps/
+  web/        Next.js 15 — painel (proxy /api → API interna)
+  api/        Fastify — REST, autenticação, regras de negócio
+  worker/     BullMQ — importações, ferramentas, métricas, backups
+  gateway/    Dono das conexões WhatsApp (sessões persistentes)
+packages/
+  database/   Prisma Client + bootstrap do administrador
+  shared/     Schemas zod, criptografia, constantes, utilitários
+  ui/         Design system "Dark Premium" (Tailwind v4 + Radix)
+  integrations/ Contratos dos provedores de canal
+prisma/       schema.prisma + migrations
+docs/         Arquitetura, deploy, segurança, ADRs
+```
+
+## Desenvolvimento local
+
+Pré-requisitos: Node 22, pnpm 10, PostgreSQL 16 e Redis 7.
+
+```bash
+pnpm install
+```
+
+```bash
+cp .env.example .env   # preencha CREDENTIALS_MASTER_KEY, ADMIN_EMAIL e ADMIN_INITIAL_PASSWORD
+```
+
+```bash
+pnpm db:deploy         # aplica as migrations
+```
+
+```bash
+pnpm dev               # web :3000, api :4000, worker, gateway
+```
+
+No primeiro acesso, entre com `ADMIN_EMAIL` / `ADMIN_INITIAL_PASSWORD`. A troca de senha é obrigatória.
+
+### Comandos
+
+| Comando           | Descrição                                                    |
+| ----------------- | ------------------------------------------------------------ |
+| `pnpm typecheck`  | Checagem de tipos em todo o monorepo                         |
+| `pnpm test`       | Testes (a API usa um PostgreSQL real em `TEST_DATABASE_URL`) |
+| `pnpm build`      | Build de produção dos quatro apps                            |
+| `pnpm format`     | Prettier                                                     |
+| `pnpm db:migrate` | Cria uma nova migration (desenvolvimento)                    |
+
+## Documentação
+
+- [Arquitetura](docs/ARCHITECTURE.md)
+- [Deploy na Railway](docs/DEPLOY.md)
+- [Segurança](docs/SECURITY.md)
+- [Decisões arquiteturais (ADRs)](docs/adr/)

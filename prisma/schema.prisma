@@ -1,0 +1,762 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// MultiZap CRM — schema do banco de dados
+//
+// Convenções:
+//  - Todas as chaves primárias são UUID.
+//  - Tabelas e colunas em snake_case no banco (@@map / @map).
+//  - Todo dado operacional pertence a uma instância (account_id). O isolamento
+//    é garantido pelo backend (repositórios com escopo) e pelas restrições abaixo.
+//  - Credenciais nunca em texto aberto: colunas *_enc guardam AES-256-GCM.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum AccountStatus {
+  NOT_CONFIGURED
+  AWAITING_CONNECTION
+  CONNECTED
+  DISCONNECTED
+  ATTENTION
+  NEEDS_REPAIR // sessão encerrada pelo WhatsApp: requer novo pareamento
+  DISABLED
+}
+
+enum ConnectionType {
+  WHATSAPP_WEB // dispositivo conectado (QR Code / código de pareamento)
+  EXTERNAL_DEVICE // aparelho apenas cadastrado: sem envio nem sincronização
+}
+
+enum ConsentStatus {
+  PENDING
+  GRANTED
+  REVOKED
+}
+
+enum ContactOrigin {
+  MANUAL
+  IMPORT
+  INBOUND
+  OTHER
+}
+
+enum ConsentAction {
+  GRANTED
+  REVOKED
+}
+
+enum ImportStatus {
+  UPLOADED
+  ANALYZED
+  CONFIRMED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ImportRowStatus {
+  VALID
+  DUPLICATE
+  INVALID
+  OPTED_OUT
+  IMPORTED
+  SKIPPED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AssetKind {
+  IMAGE
+  BANNER
+  TEXT
+  LINK
+  TEMPLATE
+  FILE
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  READY
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  ANSWERED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum NotificationCategory {
+  CONNECTION
+  PROCESSING
+  IMPORT
+  STORAGE
+  INTEGRATION
+  BACKUP
+  SECURITY
+  SYSTEM
+}
+
+// ─── Administração e sessões ────────────────────────────────────────────────
+
+model AdminUser {
+  id                 String    @id @default(uuid()) @db.Uuid
+  email              String    @unique
+  name               String
+  passwordHash       String    @map("password_hash")
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until")
+  lastLoginAt        DateTime? @map("last_login_at")
+  passwordChangedAt  DateTime? @map("password_changed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  sessions  AdminSession[]
+  auditLogs AuditLog[]
+
+  @@map("admin_users")
+}
+
+model AdminSession {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     String    @unique @map("token_hash")
+  csrfTokenHash String    @map("csrf_token_hash")
+  ip            String?
+  userAgent     String?   @map("user_agent")
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+// ─── Instâncias e conexões ──────────────────────────────────────────────────
+
+model Account {
+  id             String         @id @default(uuid()) @db.Uuid
+  name           String
+  phoneE164      String?        @map("phone_e164")
+  connectionType ConnectionType @map("connection_type")
+  status         AccountStatus  @default(NOT_CONFIGURED)
+  statusReason   String?        @map("status_reason")
+  lastActivityAt DateTime?      @map("last_activity_at")
+  disabledAt     DateTime?      @map("disabled_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  integration        Integration?
+  integrationKeys    IntegrationKey[]
+  connectionEvents   ConnectionEvent[]
+  contacts           Contact[]
+  tags               Tag[]
+  consentEvents      ConsentEvent[]
+  optOuts            OptOut[]
+  imports            Import[]
+  campaignAccounts   CampaignAccount[]
+  campaignRecipients CampaignRecipient[]
+  conversations      Conversation[]
+  messages           Message[]
+  messageEvents      MessageEvent[]
+  dailyMetrics       DailyMetric[]
+  notifications      SystemNotification[]
+
+  @@index([status])
+  @@map("accounts")
+}
+
+/// Integração de uma instância. Para WHATSAPP_WEB guarda as credenciais da
+/// sessão de dispositivo conectado (criptografadas). Remoção só manual.
+model Integration {
+  id             String    @id @default(uuid()) @db.Uuid
+  accountId      String    @unique @map("account_id") @db.Uuid
+  provider       String // "whatsapp-web" | "manual"
+  credentialsEnc Bytes?    @map("credentials_enc")
+  keyVersion     Int       @default(1) @map("key_version")
+  waJid          String?   @map("wa_jid")
+  deviceName     String?   @map("device_name")
+  capabilities   Json      @default("{}")
+  pairedAt       DateTime? @map("paired_at")
+  lastCheckAt    DateTime? @map("last_check_at")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("integrations")
+}
+
+/// Chaves de sinalização da sessão (pre-keys, sessions, sender-keys...).
+/// Valores sempre criptografados.
+model IntegrationKey {
+  id         String   @id @default(uuid()) @db.Uuid
+  accountId  String   @map("account_id") @db.Uuid
+  type       String
+  keyId      String   @map("key_id")
+  valueEnc   Bytes    @map("value_enc")
+  keyVersion Int      @default(1) @map("key_version")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, type, keyId])
+  @@map("integration_keys")
+}
+
+model ConnectionEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  type      String
+  message   String?
+  details   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@map("connection_events")
+}
+
+// ─── Contatos ───────────────────────────────────────────────────────────────
+
+model Contact {
+  id            String        @id @default(uuid()) @db.Uuid
+  accountId     String        @map("account_id") @db.Uuid
+  name          String?
+  phoneE164     String        @map("phone_e164")
+  origin        ContactOrigin @default(MANUAL)
+  originDetail  String?       @map("origin_detail")
+  consentStatus ConsentStatus @default(PENDING) @map("consent_status")
+  consentAt     DateTime?     @map("consent_at")
+  optedOutAt    DateTime?     @map("opted_out_at")
+  notes         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  account            Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tags               ContactTag[]
+  consentEvents      ConsentEvent[]
+  campaignRecipients CampaignRecipient[]
+  conversations      Conversation[]
+  importRows         ImportRow[]
+
+  @@unique([accountId, phoneE164])
+  @@index([accountId, consentStatus])
+  @@index([accountId, createdAt])
+  @@map("contacts")
+}
+
+model Tag {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  name      String
+  color     String   @default("#10b981")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account  Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contacts ContactTag[]
+
+  @@unique([accountId, name])
+  @@map("tags")
+}
+
+model ContactTag {
+  contactId String   @map("contact_id") @db.Uuid
+  tagId     String   @map("tag_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([tagId])
+  @@map("contact_tags")
+}
+
+model ConsentEvent {
+  id        String        @id @default(uuid()) @db.Uuid
+  accountId String        @map("account_id") @db.Uuid
+  contactId String        @map("contact_id") @db.Uuid
+  action    ConsentAction
+  source    String
+  evidence  String?
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([contactId])
+  @@map("consent_events")
+}
+
+/// Descadastramentos por telefone e instância. Persistem mesmo se o contato
+/// for excluído, impedindo reinclusão via importação.
+model OptOut {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  phoneE164 String   @map("phone_e164")
+  reason    String?
+  source    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, phoneE164])
+  @@map("opt_outs")
+}
+
+// ─── Importações e processamento de arquivos ────────────────────────────────
+
+model Import {
+  id              String       @id @default(uuid()) @db.Uuid
+  accountId       String       @map("account_id") @db.Uuid
+  fileName        String       @map("file_name")
+  fileKey         String       @map("file_key")
+  fileHash        String       @map("file_hash")
+  fileSize        BigInt       @map("file_size")
+  format          String
+  status          ImportStatus @default(UPLOADED)
+  columns         Json         @default("[]")
+  mapping         Json         @default("{}")
+  options         Json         @default("{}")
+  totalRows       Int          @default(0) @map("total_rows")
+  validRows       Int          @default(0) @map("valid_rows")
+  duplicateRows   Int          @default(0) @map("duplicate_rows")
+  invalidRows     Int          @default(0) @map("invalid_rows")
+  importedRows    Int          @default(0) @map("imported_rows")
+  rejectedFileKey String?      @map("rejected_file_key")
+  error           String?
+  confirmedAt     DateTime?    @map("confirmed_at")
+  startedAt       DateTime?    @map("started_at")
+  finishedAt      DateTime?    @map("finished_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  account Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  rows    ImportRow[]
+
+  @@index([accountId, createdAt])
+  @@index([accountId, fileHash])
+  @@map("imports")
+}
+
+model ImportRow {
+  id        String          @id @default(uuid()) @db.Uuid
+  importId  String          @map("import_id") @db.Uuid
+  rowNumber Int             @map("row_number")
+  raw       Json
+  name      String?
+  phoneE164 String?         @map("phone_e164")
+  status    ImportRowStatus
+  reason    String?
+  contactId String?         @map("contact_id") @db.Uuid
+
+  import  Import   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, rowNumber])
+  @@index([importId, status])
+  @@map("import_rows")
+}
+
+model FileJob {
+  id         String    @id @default(uuid()) @db.Uuid
+  tool       String
+  status     JobStatus @default(QUEUED)
+  params     Json      @default("{}")
+  inputKeys  Json      @default("[]") @map("input_keys")
+  outputKeys Json      @default("[]") @map("output_keys")
+  progress   Int       @default(0)
+  summary    Json      @default("{}")
+  error      String?
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("file_jobs")
+}
+
+// ─── Biblioteca de criativos ────────────────────────────────────────────────
+
+model AssetFolder {
+  id        String   @id @default(uuid()) @db.Uuid
+  parentId  String?  @map("parent_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent   AssetFolder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children AssetFolder[] @relation("FolderTree")
+  assets   Asset[]
+
+  @@index([parentId])
+  @@map("asset_folders")
+}
+
+model Asset {
+  id          String    @id @default(uuid()) @db.Uuid
+  folderId    String?   @map("folder_id") @db.Uuid
+  kind        AssetKind
+  name        String
+  storageKey  String?   @map("storage_key")
+  mimeType    String?   @map("mime_type")
+  sizeBytes   BigInt?   @map("size_bytes")
+  width       Int?
+  height      Int?
+  sha256      String?
+  textContent String?   @map("text_content")
+  url         String?
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  folder           AssetFolder?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  usages           AssetUsage[]
+  campaigns        Campaign[]
+  campaignAccounts CampaignAccount[]
+
+  @@index([folderId])
+  @@index([kind])
+  @@map("assets")
+}
+
+model AssetUsage {
+  id         String   @id @default(uuid()) @db.Uuid
+  assetId    String   @map("asset_id") @db.Uuid
+  campaignId String   @map("campaign_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  asset    Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, campaignId])
+  @@map("asset_usages")
+}
+
+// ─── Campanhas (modo assistido: cada envio confirmado pelo administrador) ──
+
+model Campaign {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String
+  status      CampaignStatus @default(DRAFT)
+  body        String?
+  linkUrl     String?        @map("link_url")
+  assetId     String?        @map("asset_id") @db.Uuid
+  audience    Json           @default("{}")
+  scheduledAt DateTime?      @map("scheduled_at")
+  startedAt   DateTime?      @map("started_at")
+  completedAt DateTime?      @map("completed_at")
+  cancelledAt DateTime?      @map("cancelled_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  asset    Asset?            @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  accounts CampaignAccount[]
+  usages   AssetUsage[]
+  metrics  CampaignMetric[]
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("campaigns")
+}
+
+/// Campanha-filho: uma por instância, com público, configuração e resultado próprios.
+model CampaignAccount {
+  id              String         @id @default(uuid()) @db.Uuid
+  campaignId      String         @map("campaign_id") @db.Uuid
+  accountId       String         @map("account_id") @db.Uuid
+  status          CampaignStatus @default(DRAFT)
+  body            String?
+  linkUrl         String?        @map("link_url")
+  assetId         String?        @map("asset_id") @db.Uuid
+  audience        Json           @default("{}")
+  scheduledAt     DateTime?      @map("scheduled_at")
+  totalRecipients Int            @default(0) @map("total_recipients")
+  sentCount       Int            @default(0) @map("sent_count")
+  failedCount     Int            @default(0) @map("failed_count")
+  skippedCount    Int            @default(0) @map("skipped_count")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  campaign   Campaign            @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  account    Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  asset      Asset?              @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  recipients CampaignRecipient[]
+  metric     CampaignMetric?
+
+  @@unique([campaignId, accountId])
+  @@index([accountId, status])
+  @@map("campaign_accounts")
+}
+
+model CampaignRecipient {
+  id                String          @id @default(uuid()) @db.Uuid
+  campaignAccountId String          @map("campaign_account_id") @db.Uuid
+  accountId         String          @map("account_id") @db.Uuid
+  contactId         String          @map("contact_id") @db.Uuid
+  phoneE164         String          @map("phone_e164")
+  status            RecipientStatus @default(PENDING)
+  error             String?
+  confirmedAt       DateTime?       @map("confirmed_at")
+  sentAt            DateTime?       @map("sent_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  campaignAccount CampaignAccount @relation(fields: [campaignAccountId], references: [id], onDelete: Cascade)
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact         Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  message         Message?
+
+  @@unique([campaignAccountId, contactId])
+  @@index([campaignAccountId, status])
+  @@map("campaign_recipients")
+}
+
+// ─── Mensagens ──────────────────────────────────────────────────────────────
+
+model Conversation {
+  id                 String             @id @default(uuid()) @db.Uuid
+  accountId          String             @map("account_id") @db.Uuid
+  contactId          String?            @map("contact_id") @db.Uuid
+  remoteJid          String             @map("remote_jid")
+  title              String?
+  status             ConversationStatus @default(OPEN)
+  unreadCount        Int                @default(0) @map("unread_count")
+  lastMessageAt      DateTime?          @map("last_message_at")
+  lastMessagePreview String?            @map("last_message_preview")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact  Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@unique([accountId, remoteJid])
+  @@index([accountId, lastMessageAt])
+  @@index([accountId, status])
+  @@map("conversations")
+}
+
+model Message {
+  id                  String           @id @default(uuid()) @db.Uuid
+  accountId           String           @map("account_id") @db.Uuid
+  conversationId      String           @map("conversation_id") @db.Uuid
+  providerMessageId   String           @map("provider_message_id")
+  direction           MessageDirection
+  type                String           @default("text")
+  body                String?
+  mediaKey            String?          @map("media_key")
+  status              MessageStatus
+  campaignRecipientId String?          @unique @map("campaign_recipient_id") @db.Uuid
+  sentAt              DateTime         @map("sent_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  campaignRecipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+  events            MessageEvent[]
+
+  @@unique([accountId, providerMessageId])
+  @@index([conversationId, sentAt])
+  @@map("messages")
+}
+
+model MessageEvent {
+  id         String        @id @default(uuid()) @db.Uuid
+  messageId  String        @map("message_id") @db.Uuid
+  accountId  String        @map("account_id") @db.Uuid
+  status     MessageStatus
+  occurredAt DateTime      @map("occurred_at")
+  details    Json          @default("{}")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, occurredAt])
+  @@index([messageId])
+  @@map("message_events")
+}
+
+// ─── Métricas (calculadas a partir de eventos reais) ───────────────────────
+
+model CampaignMetric {
+  id                String   @id @default(uuid()) @db.Uuid
+  campaignId        String   @map("campaign_id") @db.Uuid
+  campaignAccountId String   @unique @map("campaign_account_id") @db.Uuid
+  recipients        Int      @default(0)
+  sent              Int      @default(0)
+  delivered         Int      @default(0)
+  read              Int      @default(0)
+  failed            Int      @default(0)
+  replied           Int      @default(0)
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  campaign        Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignAccount CampaignAccount @relation(fields: [campaignAccountId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("campaign_metrics")
+}
+
+model DailyMetric {
+  id                 String   @id @default(uuid()) @db.Uuid
+  date               DateTime @db.Date
+  accountId          String   @map("account_id") @db.Uuid
+  contactsCreated    Int      @default(0) @map("contacts_created")
+  consentsGranted    Int      @default(0) @map("consents_granted")
+  optOuts            Int      @default(0) @map("opt_outs")
+  campaignsCreated   Int      @default(0) @map("campaigns_created")
+  campaignsCompleted Int      @default(0) @map("campaigns_completed")
+  messagesSent       Int      @default(0) @map("messages_sent")
+  messagesDelivered  Int      @default(0) @map("messages_delivered")
+  messagesRead       Int      @default(0) @map("messages_read")
+  messagesFailed     Int      @default(0) @map("messages_failed")
+  messagesReceived   Int      @default(0) @map("messages_received")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([date, accountId])
+  @@map("daily_metrics")
+}
+
+// ─── Auditoria, notificações e sistema ──────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  accountId  String?  @map("account_id") @db.Uuid
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  details    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([accountId, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemNotification {
+  id         String               @id @default(uuid()) @db.Uuid
+  severity   NotificationSeverity
+  category   NotificationCategory
+  title      String
+  message    String
+  accountId  String?              @map("account_id") @db.Uuid
+  dedupeKey  String?              @map("dedupe_key")
+  readAt     DateTime?            @map("read_at")
+  resolvedAt DateTime?            @map("resolved_at")
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([readAt, createdAt])
+  @@index([dedupeKey])
+  @@map("system_notifications")
+}
+
+model SystemEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  source    String // api | worker | gateway | web
+  level     String // info | warn | error
+  type      String
+  message   String
+  details   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([source, level])
+  @@map("system_events")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model Backup {
+  id         String    @id @default(uuid()) @db.Uuid
+  status     JobStatus @default(QUEUED)
+  trigger    String // scheduled | manual
+  dbKey      String?   @map("db_key")
+  filesKey   String?   @map("files_key")
+  sizeBytes  BigInt?   @map("size_bytes")
+  error      String?
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("backups")
+}

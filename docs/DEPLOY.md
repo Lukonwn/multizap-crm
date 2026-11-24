@@ -80,6 +80,8 @@ Crie um **Railway Bucket** para os arquivos e configure **nos dois serviços**:
 | `STORAGE_S3_FORCE_PATH_STYLE`                               | `true` se o endpoint exigir _path-style_ (confira na aba do Bucket) |
 | `MAX_IMPORT_MB`                                             | `100` (apenas API; opcional)                                        |
 
+O **multizap-gateway** também precisa das variáveis `STORAGE_*`, para enviar as imagens das campanhas.
+
 Em produção, a API e o worker **recusam iniciar** com armazenamento local, porque o disco do container é apagado a cada deploy. O `/health/ready` da API inclui a verificação do bucket.
 
 ## Rede

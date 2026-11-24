@@ -25,3 +25,20 @@ export function mapDisconnect(statusCode: number | undefined, message = ''): Clo
       return 'unknown';
   }
 }
+
+/** Status de entrega do WhatsApp (proto.WebMessageInfo.Status) → domínio. */
+export function mapAck(status: number): 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | null {
+  switch (status) {
+    case 0:
+      return 'FAILED';
+    case 2:
+      return 'SENT';
+    case 3:
+      return 'DELIVERED';
+    case 4:
+    case 5:
+      return 'READ';
+    default:
+      return null; // 1 = pendente (ainda no aparelho)
+  }
+}

@@ -1,9 +1,11 @@
-import type {
-  AccountStatus,
-  NotificationCategory,
-  NotificationSeverity,
-  Prisma,
-  PrismaClient,
+import {
+  MESSAGE_STATUS_RANK,
+  refreshCampaignProgress,
+  type AccountStatus,
+  type NotificationCategory,
+  type NotificationSeverity,
+  type Prisma,
+  type PrismaClient,
 } from '@multizap/database';
 
 /** Erros esperados quando a instância foi excluída enquanto a sessão encerrava. */
@@ -109,6 +111,42 @@ export class SessionRepository {
     });
     if (existing) return existing;
     return tolerant(() => this.prisma.systemNotification.create({ data: n }));
+  }
+
+  /**
+   * Status de entrega informado pelo WhatsApp. Só avança (enviada → entregue → lida);
+   * mensagens desconhecidas (ex.: enviadas pelo celular) são ignoradas até a Fase 7.
+   */
+  async updateMessageStatus(
+    accountId: string,
+    providerMessageId: string,
+    status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED',
+  ) {
+    const msg = await this.prisma.message.findUnique({
+      where: { accountId_providerMessageId: { accountId, providerMessageId } },
+    });
+    if (!msg) return;
+    const advance =
+      status === 'FAILED'
+        ? msg.status === 'SENT' || msg.status === 'PENDING'
+        : MESSAGE_STATUS_RANK[status]! > (MESSAGE_STATUS_RANK[msg.status] ?? 0);
+    if (!advance) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({ where: { id: msg.id }, data: { status } });
+      await tx.messageEvent.create({
+        data: { messageId: msg.id, accountId, status, occurredAt: new Date() },
+      });
+      if (msg.campaignRecipientId) {
+        const r = await tx.campaignRecipient.update({
+          where: { id: msg.campaignRecipientId },
+          data: {
+            status,
+            ...(status === 'FAILED' && { error: 'O WhatsApp informou falha na entrega.' }),
+          },
+        });
+        await refreshCampaignProgress(tx, r.campaignAccountId);
+      }
+    });
   }
 
   /** Resolve as notificações de conexão pendentes quando a instância volta a funcionar. */

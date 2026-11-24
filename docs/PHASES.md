@@ -175,3 +175,62 @@
 **Ajuste feito durante a verificação**
 
 - As miniaturas de banners largos apareciam cortadas no card. Agora a imagem é exibida inteira.
+
+## Fase 6: Campanhas assistidas ✅
+
+**Entregue**
+
+- **Construtor:**
+  - nome, texto com variáveis ou modelo da biblioteca, link, imagem da biblioteca;
+  - campanha multicontas, com filtro de etiquetas por instância;
+  - público elegível calculado por instância, mostrando os excluídos;
+  - pré-visualização com um contato real;
+  - rascunhos, edição e duplicação.
+- **Agendamento e controle:**
+  - agendamento que monta a fila no horário, com notificação;
+  - "Preparar fila agora";
+  - calendário mensal;
+  - pausa, retomada e cancelamento;
+  - histórico de ações.
+- **Envio assistido:**
+  - próximo destinatário com a mensagem personalizada;
+  - "Enviar" (um clique por mensagem) ou "Pular";
+  - últimos envios com o status real do WhatsApp;
+  - tentar novamente envios com falha.
+- **Gateway:**
+  - envio pela sessão da instância (texto ou imagem com legenda);
+  - registro em conversas, mensagens e eventos;
+  - confirmações de entrega e leitura;
+  - reserva atômica contra envio duplicado;
+  - recuperação de envios interrompidos.
+- **Worker:** preparação da fila (somente elegíveis) e verificação de agendamentos a cada minuto.
+- Migration `recipient_sending`: status `SENDING`.
+
+**Verificação**
+
+- 184 testes: gateway 32, worker 16, API 83, entre outros. Cobrem:
+  - nunca enviar sem confirmação;
+  - revalidação de consentimento e descadastro no envio;
+  - pausa da campanha e pausa global;
+  - instância desconectada;
+  - envio concorrente do mesmo destinatário (que revelou e corrigiu um risco de envio duplicado);
+  - confirmações que nunca retrocedem.
+- Navegador, com os builds de produção (API, worker, web) e o código real do gateway com uma conexão WhatsApp **simulada** (o ambiente não alcança o WhatsApp):
+  - público de 3 elegíveis entre 4 (o descadastrado ficou fora);
+  - fila preparada pelo worker;
+  - 2 envios confirmados, ambos com imagem, e 1 pulado;
+  - confirmações de leitura refletidas;
+  - campanha concluída;
+  - cópia agendada sem nenhum envio;
+  - calendário.
+
+**Correções feitas durante a verificação**
+
+- **Risco de envio duplicado com jobs concorrentes:** corrigido com reserva atômica (`SENDING`).
+- **Ordem da fila e das instâncias não determinística:** agora é por nome.
+- **Detalhe da campanha concluída deixava de atualizar as confirmações de leitura:** agora continua atualizando.
+
+**Pendências conhecidas**
+
+- **O envio real pelo WhatsApp não pôde ser testado aqui.** Validar no deploy com um número de teste próprio.
+- O canal de dispositivo conectado não exige modelos aprovados; o suporte a modelos aprovados só se aplicaria a um canal oficial, que não está em uso.

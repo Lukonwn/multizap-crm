@@ -13,12 +13,19 @@ import type {
   CloseReason,
   ConnEvent,
   ConnectionFactory,
+  OutgoingMessage,
   WaConnection,
 } from './types';
 import type { LockManager } from './lock';
 import { SessionRepository } from './repository';
 
 type Mode = 'pairing' | 'restore';
+
+export class NotConnectedError extends Error {
+  constructor() {
+    super('A instância não está conectada.');
+  }
+}
 
 interface Session {
   accountId: string;
@@ -92,6 +99,26 @@ export class SessionManager {
 
   hasSession(accountId: string): boolean {
     return this.sessions.has(accountId);
+  }
+
+  isOpen(accountId: string): boolean {
+    return !!this.sessions.get(accountId)?.open;
+  }
+
+  /** Envio individual pela sessão conectada da instância (serializado por instância). */
+  send(
+    accountId: string,
+    jid: string,
+    message: OutgoingMessage,
+  ): Promise<{ id: string; timestamp: number }> {
+    return this.serial(accountId, async () => {
+      const s = this.sessions.get(accountId);
+      if (!s?.open || !s.conn) throw new NotConnectedError();
+      const result = await s.conn.sendMessage(jid, message);
+      s.lastTouch = Date.now();
+      await this.repo.touch(accountId);
+      return result;
+    });
   }
 
   /** Serializa operações por instância (evita corridas entre comandos e eventos). */
@@ -392,6 +419,9 @@ export class SessionManager {
         return;
       case 'close':
         return this.onClose(s, e.reason, e.message);
+      case 'message-status':
+        await this.repo.updateMessageStatus(accountId, e.id, e.status);
+        return;
     }
   }
 

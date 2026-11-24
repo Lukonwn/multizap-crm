@@ -160,3 +160,26 @@ Painel ──POST /tools/uploads──▶ API ──▶ bucket (tools/uploads/�
 - **Modelos:** variáveis `{{nome}}`, `{{primeiro_nome}}` e `{{telefone}}`, validadas na criação e na edição. `renderTemplate` (shared) será usado pelas campanhas. Textos são limitados a 4.096 caracteres.
 - **Uso em campanhas:** `asset_usages` alimenta o histórico de utilização. Um criativo em campanha agendada ou ativa não pode ser excluído.
 - **Armazenamento:** `assets/<id>/original.<ext>` e `assets/<id>/thumb.webp`, no bucket.
+
+## Campanhas assistidas (Fase 6)
+
+```
+Construtor ──▶ rascunho (campaigns + campaign_accounts por instância, com filtro de etiquetas)
+Agendar     ──▶ SCHEDULED: o worker verifica a cada minuto
+Preparar    ──▶ worker monta campaign_recipients (somente elegíveis) → READY + notificação
+Envio assistido: GET /campaigns/:id/next  →  administrador clica "Enviar"
+                 POST …/recipients/:rid/send (confirmação atômica) → fila do gateway
+                 gateway: reserva atômica (SENDING) → revalida → envia pela sessão → messages/message_events
+WhatsApp ──ack──▶ gateway: enviada → entregue → lida (nunca retrocede) → recipient + message_events
+```
+
+**Regras invioláveis:**
+
+- **Nenhum envio automático.** O agendamento só monta a fila. Cada mensagem exige um clique do administrador, registrado na auditoria (`campaign.message_confirmed`).
+- **Elegibilidade:** consentimento `GRANTED`, sem `opted_out_at` e sem registro em `opt_outs`, conferida em três momentos: na preparação da fila, ao exibir o próximo destinatário (quem deixou de ser elegível é pulado automaticamente) e no gateway, imediatamente antes de enviar.
+- **Isolamento:** cada campanha-filho usa só os contatos da própria instância. Aparelhos apenas cadastrados não podem participar.
+- **Bloqueios de envio:** campanha pausada, cancelada ou agendada; instância desconectada; gateway fora do ar; pausa global (`system_settings.operations_paused`).
+- **Sem envio duplicado:** a API só confirma um destinatário uma vez (`confirmedAt` atômico), e o gateway reserva o destinatário com `SENDING` antes de enviar. Um envio interrompido por reinício é marcado como falha "para conferir no celular", nunca repetido às cegas.
+- **Sem simulação de comportamento humano**, randomização de intervalos ou rodízio de contas.
+
+**Status:** `PENDING` → (confirmado) → `SENDING` → `SENT` → `DELIVERED` → `READ`, ou `FAILED`/`SKIPPED`. A conclusão é calculada por `refreshCampaignProgress` (pacote database).

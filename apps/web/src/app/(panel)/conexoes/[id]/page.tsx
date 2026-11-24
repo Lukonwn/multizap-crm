@@ -51,7 +51,7 @@ const CAPABILITY_LABELS: { key: keyof ProviderCapabilities; label: string; phase
   { key: 'qrPairing', label: 'Pareamento por QR Code', phase: 2 },
   { key: 'pairingCode', label: 'Pareamento com número de telefone', phase: 2 },
   { key: 'receiveMessages', label: 'Recebimento de mensagens', phase: 7 },
-  { key: 'sendMessage', label: 'Envio de mensagens individuais', phase: 6 },
+  { key: 'sendMessage', label: 'Envio de mensagens individuais (campanha assistida)', phase: 6 },
   { key: 'messageStatus', label: 'Status de entrega e leitura', phase: 6 },
   { key: 'historySync', label: 'Histórico entregue ao vincular', phase: 7 },
 ];

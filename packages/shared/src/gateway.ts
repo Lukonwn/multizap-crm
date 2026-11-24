@@ -14,7 +14,9 @@ export type GatewayCommand =
   | { type: 'reconnect'; accountId: string }
   | { type: 'stop'; accountId: string }
   /** Encerra a sessão no WhatsApp (logout) e apaga as credenciais. Ação manual. */
-  | { type: 'remove'; accountId: string };
+  | { type: 'remove'; accountId: string }
+  /** Envio individual confirmado pelo administrador (campanha assistida). */
+  | { type: 'send-campaign-message'; accountId: string; recipientId: string };
 
 export type PairingState =
   | { kind: 'starting'; method: 'qr' | 'pairing-code'; at: number }

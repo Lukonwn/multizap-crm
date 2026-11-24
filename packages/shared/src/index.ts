@@ -12,3 +12,4 @@ export * from './contacts';
 export * from './imports';
 export * from './tools';
 export * from './assets';
+export * from './campaigns';

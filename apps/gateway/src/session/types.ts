@@ -19,7 +19,14 @@ export type ConnEvent =
   | { type: 'qr'; qr: string }
   | { type: 'open'; jid: string; name?: string }
   | { type: 'close'; reason: CloseReason; statusCode?: number; message?: string }
-  | { type: 'activity' };
+  | { type: 'activity' }
+  | { type: 'message-status'; id: string; status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' };
+
+export interface OutgoingMessage {
+  text: string;
+  image?: Buffer;
+  mimetype?: string;
+}
 
 export interface WaConnection {
   /** Solicita o código de pareamento ao WhatsApp. `phoneDigits` sem "+". */
@@ -28,6 +35,8 @@ export interface WaConnection {
   end(): void;
   /** Desvincula o dispositivo no WhatsApp. */
   logout(): Promise<void>;
+  /** Envia uma mensagem individual. Retorna o id atribuído pelo WhatsApp. */
+  sendMessage(jid: string, message: OutgoingMessage): Promise<{ id: string; timestamp: number }>;
 }
 
 export interface ConnectionFactory {

@@ -12,6 +12,8 @@ import { BaileysFactory } from './whatsapp/baileys-factory';
 import { LockManager } from './session/lock';
 import { SessionManager } from './session/manager';
 import { handleCommand } from './commands';
+import { CampaignSender } from './campaigns/sender';
+import { storageFromEnv } from '@multizap/storage';
 
 /**
  * multizap-gateway — dono das conexões WhatsApp (dispositivos conectados).
@@ -45,6 +47,20 @@ const factory = new BaileysFactory(
 const locks = new LockManager(redis, `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`);
 const manager = new SessionManager(prisma, redis, factory, store, locks, { log });
 
+// Armazenamento (imagens das campanhas). Opcional: sem ele, só mensagens de texto.
+let storage = null;
+try {
+  storage = storageFromEnv();
+} catch (err) {
+  logger.warn(
+    { err: (err as Error).message },
+    'Armazenamento indisponível: envios com imagem falharão',
+  );
+}
+const sender = new CampaignSender(prisma, storage, manager, log);
+const interrupted = await sender.recoverInterrupted();
+if (interrupted) log('Envios interrompidos marcados para conferência', { interrupted });
+
 locks.startRenewal((accountId) => manager.onLockLost(accountId));
 await manager.reconcile();
 const reconcileTimer = setInterval(() => {
@@ -56,9 +72,9 @@ const worker = new Worker<GatewayCommand>(
   GATEWAY_QUEUE,
   async (job) => {
     log('Comando recebido', { type: job.data.type, accountId: job.data.accountId });
-    await handleCommand(manager, job.data);
+    await handleCommand(manager, sender, job.data);
   },
-  { connection: redis.duplicate(), concurrency: 5 },
+  { connection: redis.duplicate(), concurrency: 5, prefix: process.env.BULLMQ_PREFIX || 'bull' },
 );
 worker.on('failed', (job, err) =>
   logger.error({ err: err.message, type: job?.data.type }, 'Comando falhou'),

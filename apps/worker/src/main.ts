@@ -7,11 +7,15 @@ import {
   TOOLS_QUEUE,
   type ImportJob,
   type ToolJobData,
+  CAMPAIGNS_QUEUE,
+  type CampaignJob,
 } from '@multizap/shared';
+import { Queue } from 'bullmq';
 import { onShutdown, startHealthServer, startHeartbeat } from '@multizap/shared/runtime';
 import { storageFromEnv } from '@multizap/storage';
 import { ImportProcessor } from './imports/processor';
 import { ToolJobProcessor } from './tools/processor';
+import { CampaignPreparer } from './campaigns/preparer';
 import { QUEUES } from './queues';
 
 /**
@@ -77,6 +81,39 @@ toolWorker.on('failed', (job, err) => {
   if (job.attemptsMade >= (job.opts.attempts ?? 1)) void tools.fail(job.data.jobId, err);
 });
 
+const preparer = new CampaignPreparer(prisma, log);
+const campaignWorker = new Worker<CampaignJob>(
+  CAMPAIGNS_QUEUE,
+  async (job) => {
+    log('Preparando campanha', { campaignId: job.data.campaignId });
+    await preparer.prepare(job.data.campaignId);
+  },
+  { connection: redis.duplicate(), prefix, concurrency: 1 },
+);
+campaignWorker.on('failed', (job, err) =>
+  log('Preparação de campanha falhou', { campaignId: job?.data.campaignId, err: err.message }),
+);
+
+// Agendamentos: a cada minuto, enfileira as campanhas cujo horário chegou.
+const campaignQueue = new Queue<CampaignJob>(CAMPAIGNS_QUEUE, {
+  connection: redis.duplicate(),
+  prefix,
+});
+const scheduleTimer = setInterval(async () => {
+  try {
+    for (const id of await preparer.due()) {
+      await campaignQueue.add(
+        'prepare',
+        { type: 'prepare', campaignId: id },
+        { jobId: `prepare-${id}`, removeOnComplete: true, removeOnFail: 100 },
+      );
+    }
+  } catch (err) {
+    log('Falha ao verificar agendamentos', { err: (err as Error).message });
+  }
+}, 60_000);
+scheduleTimer.unref();
+
 const stopHeartbeat = startHeartbeat(redis, HEARTBEAT_KEYS.worker, () => ({
   queues: Object.values(QUEUES),
 }));
@@ -88,7 +125,13 @@ log('Worker pronto', { storage: storage.kind });
 onShutdown(async () => {
   stopHeartbeat();
   // aguarda os jobs atuais; jobs interrompidos são retomados pelo BullMQ
-  await Promise.all([importWorker.close(), toolWorker.close()]);
+  clearInterval(scheduleTimer);
+  await Promise.all([
+    importWorker.close(),
+    toolWorker.close(),
+    campaignWorker.close(),
+    campaignQueue.close(),
+  ]);
   health?.close();
   await prisma.$disconnect();
   redis.disconnect();

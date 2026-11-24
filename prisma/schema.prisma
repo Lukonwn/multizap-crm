@@ -104,6 +104,7 @@ enum CampaignStatus {
 
 enum RecipientStatus {
   PENDING
+  SENDING // reservado atomicamente pelo gateway durante o envio
   SENT
   DELIVERED
   READ

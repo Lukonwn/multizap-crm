@@ -2,7 +2,7 @@ import makeWASocket, { Browsers, makeCacheableSignalKeyStore } from 'baileys';
 import type { Logger } from 'pino';
 import type { ConnEvent, ConnectionFactory, WaConnection } from '../session/types';
 import type { DbAuthStore } from './auth-store';
-import { mapDisconnect } from './disconnect';
+import { mapAck, mapDisconnect } from './disconnect';
 
 /**
  * Cria conexões de dispositivo conectado via Baileys.
@@ -60,10 +60,31 @@ export class BaileysFactory implements ConnectionFactory {
 
     sock.ev.on('messages.upsert', () => onEvent({ type: 'activity' }));
 
+    // Confirmações reais do WhatsApp para mensagens enviadas por esta sessão.
+    sock.ev.on('messages.update', (updates) => {
+      for (const u of updates) {
+        if (!u.key.fromMe || !u.key.id || u.update.status === undefined || u.update.status === null)
+          continue;
+        const status = mapAck(Number(u.update.status));
+        if (status) onEvent({ type: 'message-status', id: u.key.id, status });
+      }
+    });
+
     return {
       requestPairingCode: (phoneDigits) => sock.requestPairingCode(phoneDigits),
       end: () => sock.end(undefined),
       logout: () => sock.logout(),
+      sendMessage: async (jid, m) => {
+        const content = m.image
+          ? { image: m.image, mimetype: m.mimetype, caption: m.text }
+          : { text: m.text };
+        const sent = await sock.sendMessage(jid, content);
+        if (!sent?.key?.id) throw new Error('O WhatsApp não confirmou o envio.');
+        return {
+          id: sent.key.id,
+          timestamp: Number(sent.messageTimestamp ?? Math.floor(Date.now() / 1000)),
+        };
+      },
     };
   }
 }

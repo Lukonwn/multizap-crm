@@ -130,7 +130,7 @@ export default function DashboardPage() {
           value={formatNumber(d.campaigns.total)}
           icon={Megaphone}
           tone="neutral"
-          hint="Módulo na Fase 6"
+          hint="Total de campanhas"
         />
         <StatCard
           label="Campanhas agendadas"

@@ -2,7 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
-import type { ImportQueue, ToolQueue } from './lib/queues';
+import type { CampaignQueue, ImportQueue, ToolQueue } from './lib/queues';
+import { campaignRoutes } from './modules/campaigns/routes';
 import { toolRoutes } from './modules/tools/routes';
 import { assetRoutes } from './modules/assets/routes';
 import { contactRoutes } from './modules/contacts/routes';
@@ -29,6 +30,7 @@ declare module 'fastify' {
     storage: StorageDriver | null;
     importQueue: ImportQueue | null;
     toolQueue: ToolQueue | null;
+    campaignQueue: CampaignQueue | null;
   }
 }
 
@@ -40,6 +42,7 @@ export interface BuildDeps {
   storage?: StorageDriver | null;
   importQueue?: ImportQueue | null;
   toolQueue?: ToolQueue | null;
+  campaignQueue?: CampaignQueue | null;
   logger?: boolean;
 }
 
@@ -51,6 +54,7 @@ export async function buildApp({
   storage = null,
   importQueue = null,
   toolQueue = null,
+  campaignQueue = null,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -80,6 +84,7 @@ export async function buildApp({
   app.decorate('storage', storage);
   app.decorate('importQueue', importQueue);
   app.decorate('toolQueue', toolQueue);
+  app.decorate('campaignQueue', campaignQueue);
 
   await app.register(sensible);
   await app.register(multipart, {
@@ -132,6 +137,7 @@ export async function buildApp({
   await app.register(importRoutes);
   await app.register(toolRoutes);
   await app.register(assetRoutes);
+  await app.register(campaignRoutes);
 
   return app;
 }

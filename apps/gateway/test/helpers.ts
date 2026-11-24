@@ -44,6 +44,13 @@ export class FakeConn implements WaConnection {
   async logout() {
     this.loggedOut = true;
   }
+  sent: { jid: string; text: string; hasImage: boolean }[] = [];
+  sendError: Error | null = null;
+  async sendMessage(jid: string, m: { text: string; image?: Buffer }) {
+    if (this.sendError) throw this.sendError;
+    this.sent.push({ jid, text: m.text, hasImage: !!m.image });
+    return { id: `WAMSG${this.sent.length}`, timestamp: Math.floor(Date.now() / 1000) };
+  }
 }
 
 /** Fábrica controlada pelo teste: cada conexão expõe `emit` para simular o WhatsApp. */

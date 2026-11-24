@@ -358,3 +358,47 @@
 
 - Bucket S3 real não testado aqui; os testes usam o driver local. Validar no deploy com "Fazer backup agora" e `restore.js --list`.
 - O backup do banco é lógico (`COPY`), restaurável apenas na mesma versão das migrations (ver ADR 0005).
+
+## Fase 10: Testes, documentação e produção ✅
+
+**Problema grave encontrado e corrigido**
+
+- A regra `storage/` do `.gitignore`, pensada para a pasta local de arquivos, também ignorava o pacote `packages/storage`. Ele nunca tinha sido versionado. Um clone limpo do repositório (e, portanto, qualquer deploy na Railway) não compilava a API, o worker nem o gateway desde a Fase 3. Os testes locais passavam porque os arquivos existiam no disco.
+- O CI estava vermelho desde a Fase 3: parava no primeiro passo (formatação), e os demais nunca rodavam no GitHub.
+- Correção: `.gitignore` restrito às pastas de dados; pacote versionado; formatação aplicada; pipeline reproduzido em um clone limpo, com banco novo, antes do push. O CI está verde desde então.
+
+**Entregue**
+
+- **CI completo a cada push:** formatação, tipos, 235 testes com PostgreSQL e Redis reais, build e 11 testes de ponta a ponta no navegador.
+- **Testes de ponta a ponta** (`tests/e2e`, Playwright) contra os builds reais da API, do worker e do painel:
+  - proteção de rotas e da API;
+  - primeiro acesso com troca de senha;
+  - todas as telas, no computador e no celular, sem rolagem lateral;
+  - cadastro de instância e de contato com consentimento;
+  - higienizador com download;
+  - pausa global;
+  - backup manual;
+  - relatórios com exportação;
+  - auditoria;
+  - logout;
+  - ausência de erros de JavaScript.
+- **Celular:**
+  - menu em gaveta;
+  - Central em uma coluna, com "Voltar";
+  - cabeçalhos que quebram linha;
+  - nenhuma das 17 telas com rolagem lateral em 390 px.
+- **Revisão de segurança:**
+  - cabeçalhos, com HSTS adicionado;
+  - rotas internas inalcançáveis pelo proxy;
+  - CSRF e origem;
+  - histórico do Git sem segredos;
+  - dependências: `sharp` e `csv-parse` atualizados, os demais alertas avaliados e documentados.
+- **Documentação:**
+  - critérios de aceitação com evidências ([ACCEPTANCE.md](ACCEPTANCE.md));
+  - roteiro de validação do primeiro deploy ([DEPLOY.md](DEPLOY.md#validações-do-primeiro-deploy));
+  - revisão de segurança ([SECURITY.md](SECURITY.md)).
+- Teste do gateway que dependia de dois comandos caírem no mesmo milissegundo, e falhava só no CI, reescrito com horários explícitos.
+
+**Pendências (validação no primeiro deploy)**
+
+- WhatsApp real (pareamento, envio, recebimento, restauração da sessão), Railway Bucket real e a configuração da Railway. Roteiro de 11 passos em DEPLOY.md.

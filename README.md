@@ -17,9 +17,9 @@ CRM privado para gerenciar até **10 contas WhatsApp** em um único painel admin
 | 7    | Central de mensagens                                  | ✅ Concluída |
 | 8    | Relatórios e analytics                                | ✅ Concluída |
 | 9    | System Health e segurança                             | ✅ Concluída |
-| 10   | Testes, documentação e produção                       | ⏳ Próxima   |
+| 10   | Testes, documentação e produção                       | ✅ Concluída |
 
-Detalhes e registro de cada fase: [`docs/PHASES.md`](docs/PHASES.md).
+Detalhes e registro de cada fase: [`docs/PHASES.md`](docs/PHASES.md). Critérios de aceitação e o que validar no primeiro deploy: [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md).
 
 ## Estrutura
 
@@ -38,7 +38,8 @@ packages/
   files/      Leitura e escrita de CSV, TXT e XLSX em streaming
   tools/      Ferramentas de listas (conversor, divisor, higienizador...)
 prisma/       schema.prisma + migrations
-docs/         Arquitetura, deploy, segurança, ADRs
+tests/e2e/    Testes de ponta a ponta (Playwright) contra os builds reais
+docs/         Arquitetura, deploy, segurança, aceitação, ADRs
 ```
 
 ## Desenvolvimento local
@@ -65,17 +66,19 @@ No primeiro acesso, entre com `ADMIN_EMAIL` / `ADMIN_INITIAL_PASSWORD`. A troca 
 
 ### Comandos
 
-| Comando           | Descrição                                                    |
-| ----------------- | ------------------------------------------------------------ |
-| `pnpm typecheck`  | Checagem de tipos em todo o monorepo                         |
-| `pnpm test`       | Testes (a API usa um PostgreSQL real em `TEST_DATABASE_URL`) |
-| `pnpm build`      | Build de produção dos quatro apps                            |
-| `pnpm format`     | Prettier                                                     |
-| `pnpm db:migrate` | Cria uma nova migration (desenvolvimento)                    |
+| Comando           | Descrição                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `pnpm typecheck`  | Checagem de tipos em todo o monorepo                                                           |
+| `pnpm test`       | Testes (a API usa um PostgreSQL real em `TEST_DATABASE_URL`)                                   |
+| `pnpm build`      | Build de produção dos quatro apps                                                              |
+| `pnpm test:e2e`   | Ponta a ponta no navegador (requer `pnpm build`; usa `E2E_DATABASE_URL`, um banco descartável) |
+| `pnpm format`     | Prettier                                                                                       |
+| `pnpm db:migrate` | Cria uma nova migration (desenvolvimento)                                                      |
 
 ## Documentação
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Deploy na Railway](docs/DEPLOY.md)
 - [Segurança](docs/SECURITY.md)
+- [Critérios de aceitação](docs/ACCEPTANCE.md)
 - [Decisões arquiteturais (ADRs)](docs/adr/)

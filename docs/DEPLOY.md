@@ -166,3 +166,23 @@ O gateway usa `overlapSeconds: 0` e `drainingSeconds: 30`: a instância antiga e
 5. Faça o deploy. A API aplica as migrations e cria o administrador.
 6. Acesse o painel, entre e defina a nova senha.
 7. Em **System Health**, confirme que todos os serviços estão operacionais.
+
+### Validações do primeiro deploy
+
+Estes pontos não puderam ser testados no ambiente de desenvolvimento (sem acesso ao WhatsApp, à Railway e a um bucket real). Confira-os uma vez, nesta ordem:
+
+| #   | O que validar             | Como                                                                                                                    | Esperado                                                                    |
+| --- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | Config-as-code            | Em cada serviço, _Settings_: Dockerfile, health check, pre-deploy da API, `overlapSeconds`/`drainingSeconds` do gateway | Valores do `railway.json` reconhecidos (senão, configure-os manualmente)    |
+| 2   | Bucket de arquivos        | Envie uma imagem em Criativos e uma lista em Contatos → Importar; baixe os rejeitados                                   | Miniatura aparece; download funciona; System Health mostra "Railway Bucket" |
+| 3   | Pareamento por QR Code    | Conexões → Nova instância → Parear → ler o QR no celular (Aparelhos conectados)                                         | Instância "Conectada" com o número identificado                             |
+| 4   | Pareamento por código     | Outra instância → Parear por número → digitar o código de 8 letras no celular                                           | Instância "Conectada"                                                       |
+| 5   | Restauração após reinício | Faça _Restart_ do multizap-gateway                                                                                      | Instâncias voltam a "Conectada" sem novo pareamento                         |
+| 6   | Recebimento               | De outro celular, mande uma mensagem para o número conectado                                                            | Conversa aparece na Central, contato criado com origem "mensagem recebida"  |
+| 7   | Resposta                  | Responda pela Central                                                                                                   | Mensagem chega ao celular; status evolui até "Lida"                         |
+| 8   | Campanha assistida        | Crie uma campanha para um contato de teste autorizado (seu próprio número) e confirme o envio                           | Mensagem entregue; relatório da campanha atualizado                         |
+| 9   | Descadastramento          | Do celular de teste, responda "SAIR"                                                                                    | Contato descadastrado e fora das próximas campanhas                         |
+| 10  | Backup                    | System Health → Fazer backup agora; depois `node apps/worker/dist/restore.js --list` no terminal do worker              | Backup "Concluído" e listado pelo comando                                   |
+| 11  | Pausa global              | Pause em System Health e tente responder uma conversa                                                                   | Resposta bloqueada com aviso; retome em seguida                             |
+
+Guarde em local seguro, fora da Railway, uma cópia de `CREDENTIALS_MASTER_KEY` e `BACKUP_ENCRYPTION_KEY`.

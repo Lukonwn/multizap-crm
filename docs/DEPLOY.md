@@ -17,6 +17,8 @@ Crie um projeto na Railway conectado a este repositório GitHub, com:
 
 > O **Root Directory** de todos os serviços de app deve ser a **raiz do repositório**, porque o build precisa dos pacotes compartilhados. Em _Settings → Config-as-code_, aponte o caminho do `railway.json` de cada app.
 
+> Se o painel da Railway não oferecer o campo **Config file path**, copie à mão os valores de cada `railway.json` (Dockerfile, health check, _watch paths_, política de reinício, `overlapSeconds`/`drainingSeconds` do gateway e o **pre-deploy command** da API) nas configurações do serviço. Confira principalmente o pre-deploy da API: é ele que aplica as migrations.
+
 Cada `railway.json` define o Dockerfile, os _watch paths_ (um deploy só refaz o serviço afetado), o health check e a política de reinício. A API executa `prisma migrate deploy` como **pre-deploy command**.
 
 > ⚠️ A documentação da Railway não estava acessível no ambiente de desenvolvimento. As chaves de `railway.json` (`preDeployCommand`, `overlapSeconds`, `drainingSeconds`) seguem o formato conhecido de config-as-code. Confira no painel, no primeiro deploy, se foram reconhecidas. Se não forem, configure os mesmos valores em _Settings_.
@@ -57,6 +59,8 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 | `CREDENTIALS_MASTER_KEY`  | a mesma da API (somente gateway, a partir da Fase 2)                  |
 | `CREDENTIALS_KEY_VERSION` | `1`                                                                   |
 | `REPORTS_TZ`              | opcional, padrão `America/Sao_Paulo` (somente worker; o mesmo da API) |
+
+Defina também `PORT=8080` no worker e no gateway: o servidor de health check só sobe quando `PORT` está definida.
 
 O worker também precisa das variáveis `STORAGE_*` e, para os backups, das variáveis da seção [Backups](#backups-multizap-worker).
 

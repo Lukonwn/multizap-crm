@@ -1,11 +1,21 @@
 import makeWASocket, {
   Browsers,
   downloadMediaMessage,
+  isLidUser,
+  isPnUser,
   makeCacheableSignalKeyStore,
+  type Contact,
+  type LIDMapping,
   type WAMessage,
 } from 'baileys';
 import type { Logger } from 'pino';
-import type { ConnEvent, ConnectionFactory, WaConnection } from '../session/types';
+import type {
+  ConnEvent,
+  ConnectionFactory,
+  IdentityUpdate,
+  IncomingMessage,
+  WaConnection,
+} from '../session/types';
 import type { DbAuthStore } from './auth-store';
 import { mapAck, mapDisconnect } from './disconnect';
 import { normalizeMessage } from './normalize';
@@ -64,10 +74,23 @@ export class BaileysFactory implements ConnectionFactory {
       }
     });
 
-    const toIncoming = (list: WAMessage[]) =>
-      list.flatMap((m) => {
-        const n = normalizeMessage(m);
-        if (!n) return [];
+    const lids = sock.signalRepository?.lidMapping;
+    /** Telefone de um LID, pela correspondência que o WhatsApp já entregou a esta sessão. */
+    const pnForLid = async (jid: string | undefined | null): Promise<string | null> => {
+      if (!jid || !isLidUser(jid) || !lids) return null;
+      try {
+        return (await lids.getPNForLID(jid)) ?? null;
+      } catch {
+        return null;
+      }
+    };
+
+    const toIncoming = async (list: WAMessage[]) => {
+      const out: IncomingMessage[] = [];
+      for (const m of list) {
+        const alt = (m.key as { remoteJidAlt?: string }).remoteJidAlt;
+        const n = normalizeMessage(m, alt ? null : await pnForLid(m.key?.remoteJid));
+        if (!n) continue;
         if (n.type === 'image') {
           n.download = () =>
             downloadMediaMessage(
@@ -77,22 +100,48 @@ export class BaileysFactory implements ConnectionFactory {
               { logger: log, reuploadRequest: sock.updateMediaMessage },
             );
         }
-        return [n];
-      });
+        out.push(n);
+      }
+      return out;
+    };
+
+    /** Nomes e LID ↔ telefone que o WhatsApp entrega ao aparelho conectado. */
+    const toIdentities = (contacts: Contact[], mappings: LIDMapping[] = []): IdentityUpdate[] => [
+      ...contacts.map((c) => ({
+        id: c.id,
+        lid: c.lid ?? (c.id && isLidUser(c.id) ? c.id : undefined),
+        phoneJid: c.phoneNumber ?? (c.id && isPnUser(c.id) ? c.id : undefined),
+        savedName: c.name,
+        pushName: c.notify,
+        verifiedName: c.verifiedName,
+      })),
+      ...mappings.map((x) => ({ lid: x.lid, phoneJid: x.pn })),
+    ];
+    const emitIdentities = (items: IdentityUpdate[]) => {
+      if (items.length) onEvent({ type: 'identities', items });
+    };
 
     sock.ev.on('messages.upsert', ({ messages, type }) => {
       onEvent({ type: 'activity' });
-      const incoming = toIncoming(messages);
-      // "notify" = mensagem nova; "append" = mensagens anexadas (ex.: de outro aparelho/histórico).
-      if (incoming.length)
-        onEvent({ type: 'messages', messages: incoming, historical: type !== 'notify' });
+      void toIncoming(messages).then((incoming) => {
+        // "notify" = mensagem nova; "append" = mensagens anexadas (ex.: de outro aparelho/histórico).
+        if (incoming.length)
+          onEvent({ type: 'messages', messages: incoming, historical: type !== 'notify' });
+      });
     });
 
-    // Histórico recente entregue pelo próprio WhatsApp ao vincular o dispositivo.
-    sock.ev.on('messaging-history.set', ({ messages }) => {
-      const incoming = toIncoming(messages);
-      if (incoming.length) onEvent({ type: 'messages', messages: incoming, historical: true });
+    // Histórico recente, agenda e correspondência LID ↔ telefone entregues ao vincular o dispositivo.
+    sock.ev.on('messaging-history.set', ({ messages, contacts, lidPnMappings }) => {
+      emitIdentities(toIdentities(contacts ?? [], lidPnMappings ?? []));
+      void toIncoming(messages).then((incoming) => {
+        if (incoming.length) onEvent({ type: 'messages', messages: incoming, historical: true });
+      });
     });
+    sock.ev.on('contacts.upsert', (contacts) => emitIdentities(toIdentities(contacts)));
+    sock.ev.on('contacts.update', (contacts) =>
+      emitIdentities(toIdentities(contacts as Contact[])),
+    );
+    sock.ev.on('lid-mapping.update', (x) => emitIdentities(toIdentities([], [x])));
 
     // Confirmações reais do WhatsApp para mensagens enviadas por esta sessão.
     sock.ev.on('messages.update', (updates) => {
@@ -106,6 +155,16 @@ export class BaileysFactory implements ConnectionFactory {
 
     return {
       requestPairingCode: (phoneDigits) => sock.requestPairingCode(phoneDigits),
+      profilePictureUrl: async (jid) => {
+        try {
+          return (await sock.profilePictureUrl(jid, 'preview', 10_000)) ?? null;
+        } catch (err) {
+          // Sem foto, foto privada ou conversa inexistente: não é erro.
+          if (/item-not-found|not-authorized|not-acceptable|\b40[134]\b/i.test(String(err)))
+            return null;
+          throw err;
+        }
+      },
       end: () => sock.end(undefined),
       logout: () => sock.logout(),
       sendMessage: async (jid, m) => {

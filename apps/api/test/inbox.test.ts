@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@multizap/database';
+import type { StorageDriver } from '@multizap/storage';
 import { HEARTBEAT_KEYS } from '@multizap/shared';
 import type { GatewayClient } from '../src/lib/gateway';
 import { InboxIngest } from '../../gateway/src/inbox/ingest';
@@ -11,13 +12,14 @@ let app: FastifyInstance;
 let prisma: PrismaClient;
 let redis: Redis;
 let gateway: GatewayClient;
+let storage: StorageDriver;
 let ingest: InboxIngest;
 let s: Session;
 let A: string;
 let B: string;
 
 beforeAll(async () => {
-  ({ app, prisma, redis, gateway } = await setupTestApp());
+  ({ app, prisma, redis, gateway, storage } = await setupTestApp());
   ingest = new InboxIngest(prisma, null);
 });
 afterAll(async () => {
@@ -173,5 +175,56 @@ describe('central de mensagens', () => {
     ).json();
     expect(older.items.map((m: { body: string }) => m.body)).toEqual(['msg 0', 'msg 1']);
     expect(older.hasMore).toBe(false);
+  });
+
+  it('mostra nome e telefone de conversas por LID e serve a foto de perfil', async () => {
+    await ingest.ingest(
+      A,
+      [
+        {
+          id: 'lid1',
+          chatJid: '188123456789012@lid',
+          phoneE164: null,
+          fromMe: false,
+          timestamp: new Date(),
+          type: 'text',
+          text: 'oi',
+          pushName: null,
+        },
+      ],
+      false,
+    );
+    let conv = (await req('GET', '/conversations')).json().items[0];
+    expect(conv).toMatchObject({ phoneE164: null, title: null, photoUrl: null });
+    expect((await req('GET', `/conversations/${conv.id}/photo`)).statusCode).toBe(404);
+
+    await ingest.identities.apply(A, [
+      {
+        lid: '188123456789012@lid',
+        phoneJid: '5511987654321@s.whatsapp.net',
+        savedName: 'Joana Lima',
+      },
+    ]);
+    const stored = (await prisma.conversation.findFirstOrThrow()).id;
+    await storage.put(`avatars/${A}/foto.jpg`, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    await prisma.conversation.update({
+      where: { id: stored },
+      data: { photoKey: `avatars/${A}/foto.jpg` },
+    });
+
+    conv = (await req('GET', '/conversations')).json().items[0];
+    expect(conv).toMatchObject({
+      phoneE164: '+5511987654321',
+      title: 'Joana Lima',
+      photoUrl: `/api/conversations/${stored}/photo`,
+    });
+    const photo = await req('GET', `/conversations/${stored}/photo`);
+    expect(photo.statusCode).toBe(200);
+    expect(photo.headers['content-type']).toBe('image/jpeg');
+    expect(photo.headers['content-security-policy']).toContain('sandbox');
+    expect([...photo.rawPayload]).toEqual([0xff, 0xd8, 0xff, 0xd9]);
+    expect(
+      (await app.inject({ method: 'GET', url: `/conversations/${stored}/photo` })).statusCode,
+    ).toBe(401);
   });
 });

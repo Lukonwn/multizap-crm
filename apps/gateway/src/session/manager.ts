@@ -57,6 +57,8 @@ export interface ManagerOptions {
     messages: import('./types').IncomingMessage[],
     historical: boolean,
   ) => Promise<void>;
+  /** Recebe nomes e correspondências LID ↔ telefone entregues pelo WhatsApp. */
+  onIdentities?: (accountId: string, items: import('./types').IdentityUpdate[]) => Promise<void>;
 }
 
 const DEFAULT_BACKOFF = [2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
@@ -84,6 +86,7 @@ export class SessionManager {
   private readonly attentionAfter: number;
   private readonly log: NonNullable<ManagerOptions['log']>;
   private readonly onMessages: ManagerOptions['onMessages'];
+  private readonly onIdentities: ManagerOptions['onIdentities'];
   private generationSeq = 0;
   private shuttingDown = false;
 
@@ -100,6 +103,7 @@ export class SessionManager {
     this.attentionAfter = opts.attentionAfter ?? 3;
     this.log = opts.log ?? (() => undefined);
     this.onMessages = opts.onMessages;
+    this.onIdentities = opts.onIdentities;
   }
 
   get activeCount(): number {
@@ -128,6 +132,20 @@ export class SessionManager {
       await this.repo.touch(accountId);
       return result;
     });
+  }
+
+  /** Foto de perfil (miniatura) de uma conversa existente. Null se não houver ou for privada. */
+  profilePicture(accountId: string, jid: string): Promise<string | null> {
+    return this.serial(accountId, async () => {
+      const s = this.sessions.get(accountId);
+      if (!s?.open || !s.conn) throw new NotConnectedError();
+      return (await s.conn.profilePictureUrl?.(jid)) ?? null;
+    });
+  }
+
+  /** Instâncias com conexão aberta agora. */
+  connectedAccounts(): string[] {
+    return [...this.sessions.entries()].filter(([, s]) => s.open).map(([id]) => id);
   }
 
   /** Serializa operações por instância (evita corridas entre comandos e eventos). */
@@ -461,6 +479,9 @@ export class SessionManager {
         return;
       case 'messages':
         if (this.onMessages) await this.onMessages(accountId, e.messages, e.historical);
+        return;
+      case 'identities':
+        if (this.onIdentities) await this.onIdentities(accountId, e.items);
         return;
     }
   }

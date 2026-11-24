@@ -39,6 +39,8 @@ export interface ConversationDTO {
   contactId: string | null;
   contactName: string | null;
   phoneE164: string | null;
+  /** Rota da foto de perfil (da própria API), quando disponível. */
+  photoUrl: string | null;
   title: string | null;
   status: 'OPEN' | 'PENDING' | 'ANSWERED' | 'CLOSED';
   unreadCount: number;

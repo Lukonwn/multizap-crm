@@ -28,6 +28,7 @@ import {
   type MessageDTO,
 } from '@multizap/shared';
 import { Alert, Badge, Button, EmptyState, Input, Select, Spinner, cn } from '@multizap/ui';
+import { Avatar } from '@/components/inbox/avatar';
 import { api } from '@/lib/api';
 import { useAccounts } from '@/lib/accounts';
 import { CONSENT_TONE, useContactsMutation } from '@/lib/contacts';
@@ -313,6 +314,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
+        <Avatar name={displayName(c)} photoUrl={c.photoUrl} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{displayName(c)}</p>
           <p className="text-xs text-muted">
@@ -471,19 +473,7 @@ export default function InboxPage() {
                   selected === c.id ? 'bg-accent-soft' : 'hover:bg-surface-2/60',
                 )}
               >
-                <span
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-3 text-xs font-semibold text-muted"
-                  aria-hidden
-                >
-                  {displayName(c)
-                    .replace(/[^A-Za-zÀ-ú ]/g, '')
-                    .split(' ')
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((p) => p[0])
-                    .join('')
-                    .toUpperCase() || '#'}
-                </span>
+                <Avatar name={displayName(c)} photoUrl={c.photoUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span

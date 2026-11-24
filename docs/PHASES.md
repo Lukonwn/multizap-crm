@@ -402,3 +402,18 @@
 **Pendências (validação no primeiro deploy)**
 
 - WhatsApp real (pareamento, envio, recebimento, restauração da sessão), Railway Bucket real e a configuração da Railway. Roteiro de 11 passos em DEPLOY.md.
+
+## Correção após o primeiro teste real: identificação das conversas ✅
+
+**Problema** (primeiro pareamento com um número real): a Central mostrava "Contato sem número identificado", sem nome nem foto, e mensagens como "não suportada". A simulação dos testes só usava conversas por telefone; o WhatsApp real usa LID.
+
+**Corrigido**
+
+- Diretório de identidades com nome da agenda, nome de perfil e LID ↔ telefone; conversas passam a mostrar nome e telefone, e conversas duplicadas são unidas.
+- Fotos de perfil das conversas existentes, com limite de consultas.
+- Mais tipos de mensagem reconhecidos; tipo desconhecido mostra o nome técnico e gera evento.
+- 20 testes novos (identidades, união de conversas, isolamento por instância, fotos, tipos de mensagem, rota da foto).
+
+**Pendências**
+
+- Depende do que o WhatsApp entrega ao aparelho. Quem já estava vinculado pode precisar parear de novo para receber os nomes da agenda. Validar com o número real.

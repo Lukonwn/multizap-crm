@@ -22,7 +22,23 @@ export type ConnEvent =
   | { type: 'activity' }
   | { type: 'message-status'; id: string; status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' }
   /** Mensagens recebidas pela sessão. historical = histórico entregue pelo WhatsApp (não conta como nova). */
-  | { type: 'messages'; messages: IncomingMessage[]; historical: boolean };
+  | { type: 'messages'; messages: IncomingMessage[]; historical: boolean }
+  /** Nomes e correspondência LID ↔ telefone que o WhatsApp entrega ao aparelho conectado. */
+  | { type: 'identities'; items: IdentityUpdate[] };
+
+/** Dados de identidade de um contato, como entregues pelo WhatsApp à sessão. */
+export interface IdentityUpdate {
+  /** Identificador principal (telefone ou LID). */
+  id?: string;
+  lid?: string;
+  /** JID de telefone (…@s.whatsapp.net). */
+  phoneJid?: string;
+  /** Nome salvo na agenda do celular. */
+  savedName?: string;
+  /** Nome que o próprio contato definiu no perfil. */
+  pushName?: string;
+  verifiedName?: string;
+}
 
 export type IncomingMessageType =
   'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'other';
@@ -31,6 +47,8 @@ export interface IncomingMessage {
   id: string;
   /** JID da conversa, preferencialmente o de telefone (…@s.whatsapp.net). */
   chatJid: string;
+  /** JID original (LID) quando a conversa foi endereçada por LID e o telefone é conhecido. */
+  lidJid?: string;
   phoneE164: string | null;
   fromMe: boolean;
   timestamp: Date;
@@ -39,6 +57,8 @@ export interface IncomingMessage {
   pushName: string | null;
   mimetype?: string;
   fileName?: string;
+  /** Nome técnico do tipo, quando não é um dos tipos tratados. */
+  kind?: string;
   /** Baixa a mídia (somente imagens são armazenadas). */
   download?: () => Promise<Buffer>;
 }
@@ -56,6 +76,8 @@ export interface WaConnection {
   end(): void;
   /** Desvincula o dispositivo no WhatsApp. */
   logout(): Promise<void>;
+  /** URL da foto de perfil (miniatura) de uma conversa existente; null se não houver ou for privada. */
+  profilePictureUrl?(jid: string): Promise<string | null>;
   /** Envia uma mensagem individual. Retorna o id atribuído pelo WhatsApp. */
   sendMessage(jid: string, message: OutgoingMessage): Promise<{ id: string; timestamp: number }>;
 }

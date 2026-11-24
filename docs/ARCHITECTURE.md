@@ -236,3 +236,7 @@ API GET /system/status ── banco, Redis, bucket, heartbeats, filas BullMQ, co
 - **Backups:** ver [ADR 0005](adr/0005-backups-e-monitoramento.md) e [DEPLOY](DEPLOY.md#backups-multizap-worker).
 - **Limpeza:** resultados de ferramentas (7 dias), uploads sem uso (24 h), arquivos de importações encerradas (30 dias), sessões expiradas, eventos (30 dias) e notificações resolvidas (90 dias). Nunca remove contatos, conversas, campanhas, criativos, auditoria ou credenciais.
 - **Auditoria:** consulta somente leitura em Configurações, com filtro por tipo de ação.
+
+### Identidades, LID e fotos (correção pós-Fase 10)
+
+O WhatsApp endereça muitas conversas por LID. O gateway guarda em `wa_identities` os nomes e a correspondência LID ↔ telefone que o aparelho recebe, aplica nome, telefone e contato (sem criar contatos do CRM) às conversas, une duplicadas e busca a foto de perfil das conversas existentes, devagar e em pequeno número. Detalhes e limites em [ADR 0006](adr/0006-identidades-whatsapp-e-lid.md).

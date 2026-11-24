@@ -27,6 +27,7 @@ type ConvRow = Prisma.ConversationGetPayload<{ include: typeof convInclude }>;
 
 function phoneOf(c: ConvRow): string | null {
   if (c.contact?.phoneE164) return c.contact.phoneE164;
+  if (c.phoneE164) return c.phoneE164;
   const [user, server] = c.remoteJid.split('@');
   return server === 's.whatsapp.net' && user ? `+${user}` : null;
 }
@@ -39,6 +40,7 @@ function toConversationDTO(c: ConvRow): ConversationDTO {
     contactId: c.contactId,
     contactName: c.contact?.name ?? null,
     phoneE164: phoneOf(c),
+    photoUrl: c.photoKey ? `/api/conversations/${c.id}/photo` : null,
     title: c.title,
     status: c.status,
     unreadCount: c.unreadCount,
@@ -255,6 +257,19 @@ export async function inboxRoutes(app: FastifyInstance) {
       sentAt: m.sentAt.toISOString(),
     };
     return { message: dto };
+  });
+
+  /** Foto de perfil guardada no bucket (obtida do WhatsApp para conversas existentes). */
+  app.get('/conversations/:id/photo', auth, async (req, reply) => {
+    const { id } = parse(idParams, req.params);
+    const c = await prisma.conversation.findUnique({ where: { id }, select: { photoKey: true } });
+    if (!c?.photoKey) throw Errors.notFound('Foto não disponível.');
+    if (!app.storage) throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Armazenamento indisponível.');
+    reply
+      .header('content-type', 'image/jpeg')
+      .header('cache-control', 'private, max-age=86400')
+      .header('content-security-policy', "default-src 'none'; sandbox");
+    return reply.send(await app.storage.get(c.photoKey));
   });
 
   app.get('/messages/:id/media', auth, async (req, reply) => {

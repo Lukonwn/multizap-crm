@@ -216,6 +216,7 @@ model Account {
   campaignAccounts   CampaignAccount[]
   campaignRecipients CampaignRecipient[]
   conversations      Conversation[]
+  waIdentities       WaIdentity[]
   messages           Message[]
   messageEvents      MessageEvent[]
   dailyMetrics       DailyMetric[]
@@ -409,19 +410,19 @@ model Import {
 }
 
 model ImportRow {
-  id        String          @id @default(uuid()) @db.Uuid
-  importId  String          @map("import_id") @db.Uuid
-  rowNumber Int             @map("row_number")
-  raw       Json
-  name      String?
-  phoneE164 String?         @map("phone_e164")
-  status    ImportRowStatus
-  reason    String?
+  id                String          @id @default(uuid()) @db.Uuid
+  importId          String          @map("import_id") @db.Uuid
+  rowNumber         Int             @map("row_number")
+  raw               Json
+  name              String?
+  phoneE164         String?         @map("phone_e164")
+  status            ImportRowStatus
+  reason            String?
   /// Contato já existente na instância com o mesmo telefone (duplicado na base).
-  existingContactId String? @map("existing_contact_id") @db.Uuid
-  tags      String[]        @default([])
-  notes     String?
-  contactId String?         @map("contact_id") @db.Uuid
+  existingContactId String?         @map("existing_contact_id") @db.Uuid
+  tags              String[]        @default([])
+  notes             String?
+  contactId         String?         @map("contact_id") @db.Uuid
 
   import  Import   @relation(fields: [importId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -597,6 +598,11 @@ model Conversation {
   unreadCount        Int                @default(0) @map("unread_count")
   lastMessageAt      DateTime?          @map("last_message_at")
   lastMessagePreview String?            @map("last_message_preview")
+  /// Telefone do contato quando o WhatsApp o informa (conversas por LID podem não ter).
+  phoneE164          String?            @map("phone_e164")
+  /// Foto de perfil guardada no bucket (obtida do WhatsApp, só de conversas existentes).
+  photoKey           String?            @map("photo_key")
+  photoCheckedAt     DateTime?          @map("photo_checked_at")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
@@ -608,6 +614,29 @@ model Conversation {
   @@index([accountId, lastMessageAt])
   @@index([accountId, status])
   @@map("conversations")
+}
+
+/// Diretório de identidades do aparelho conectado: nomes salvos no celular, nomes de
+/// perfil e a correspondência LID ↔ telefone, como o WhatsApp entrega à sessão.
+/// NÃO são contatos do CRM: não aparecem em Contatos nem entram em campanhas.
+model WaIdentity {
+  id           String   @id @default(uuid()) @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  /// Identificador principal como entregue pelo WhatsApp (telefone ou LID).
+  jid          String
+  lid          String?
+  phoneE164    String?  @map("phone_e164")
+  savedName    String?  @map("saved_name")
+  pushName     String?  @map("push_name")
+  verifiedName String?  @map("verified_name")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, jid])
+  @@index([accountId, lid])
+  @@index([accountId, phoneE164])
+  @@map("wa_identities")
 }
 
 model Message {

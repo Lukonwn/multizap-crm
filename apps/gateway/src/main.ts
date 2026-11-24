@@ -15,6 +15,7 @@ import { handleCommand } from './commands';
 import { CampaignSender } from './campaigns/sender';
 import { InboxIngest } from './inbox/ingest';
 import { ReplySender } from './inbox/reply-sender';
+import { PhotoSync } from './inbox/photo-sync';
 import { storageFromEnv } from '@multizap/storage';
 
 /**
@@ -61,7 +62,12 @@ const ingest = new InboxIngest(prisma, storage, log);
 const manager = new SessionManager(prisma, redis, factory, store, locks, {
   log,
   onMessages: (accountId, messages, historical) => ingest.ingest(accountId, messages, historical),
+  onIdentities: async (accountId, items) => {
+    await ingest.identities.apply(accountId, items);
+  },
 });
+// Fotos de perfil das conversas existentes (devagar, poucas por vez).
+const stopPhotos = storage ? new PhotoSync(prisma, storage, manager, log).start() : () => undefined;
 const replies = new ReplySender(prisma, manager, log);
 const sender = new CampaignSender(prisma, storage, manager, log);
 const interrupted = await sender.recoverInterrupted();
@@ -126,6 +132,7 @@ log('Gateway pronto', { owner: locks.ownerId });
 onShutdown(async () => {
   clearInterval(reconcileTimer);
   clearInterval(watchTimer);
+  stopPhotos();
   stopHeartbeat();
   await worker.close();
   // Encerra sockets SEM logout: as sessões são restauradas na próxima inicialização.

@@ -1,7 +1,8 @@
-import type { PrismaClient } from '@multizap/database';
+import { recordSystemEvent, type PrismaClient } from '@multizap/database';
 import { isOptOutMessage, MESSAGE_TYPE_LABEL } from '@multizap/shared';
 import type { StorageDriver } from '@multizap/storage';
 import type { IncomingMessage } from '../session/types';
+import { IdentityService, isLidJid } from './identity';
 
 type Log = (msg: string, extra?: Record<string, unknown>) => void;
 
@@ -9,7 +10,9 @@ const HISTORY_WINDOW_MS = 30 * 24 * 3600 * 1000;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
 export function previewOf(m: Pick<IncomingMessage, 'type' | 'text'>): string {
-  const label = m.type === 'text' ? '' : `[${MESSAGE_TYPE_LABEL[m.type] ?? 'Mensagem'}] `;
+  // "other" com descrição (enquete, álbum...) mostra só a descrição.
+  const bare = m.type === 'text' || (m.type === 'other' && !!m.text);
+  const label = bare ? '' : `[${MESSAGE_TYPE_LABEL[m.type] ?? 'Mensagem'}] `;
   return `${label}${m.text ?? ''}`.trim().slice(0, 120);
 }
 
@@ -19,11 +22,16 @@ export function previewOf(m: Pick<IncomingMessage, 'type' | 'text'>): string {
  * entregou a esta sessão (ao vivo ou como histórico recente).
  */
 export class InboxIngest {
+  private readonly unknownKinds = new Set<string>();
+  readonly identities: IdentityService;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly storage: StorageDriver | null,
     private readonly log: Log = () => undefined,
-  ) {}
+  ) {
+    this.identities = new IdentityService(prisma, log);
+  }
 
   async ingest(accountId: string, messages: IncomingMessage[], historical: boolean): Promise<void> {
     const minTs = Date.now() - HISTORY_WINDOW_MS;
@@ -38,11 +46,32 @@ export class InboxIngest {
     }
   }
 
-  private async one(accountId: string, m: IncomingMessage, historical: boolean) {
+  private async one(accountId: string, original: IncomingMessage, historical: boolean) {
     const exists = await this.prisma.message.findUnique({
-      where: { accountId_providerMessageId: { accountId, providerMessageId: m.id } },
+      where: { accountId_providerMessageId: { accountId, providerMessageId: original.id } },
     });
     if (exists) return;
+    let m = original;
+
+    // Identidade: registra a correspondência LID ↔ telefone e o nome de perfil, e resolve
+    // o telefone de conversas endereçadas por LID quando o WhatsApp já o informou.
+    if (m.lidJid) await this.identities.apply(accountId, [{ lid: m.lidJid, phoneJid: m.chatJid }]);
+    if (!m.fromMe && m.pushName)
+      await this.identities.apply(accountId, [{ id: m.lidJid ?? m.chatJid, pushName: m.pushName }]);
+    const known = await this.identities.lookup(accountId, m.lidJid ?? m.chatJid);
+    if (!m.phoneE164 && known?.phoneE164 && known.phoneJid && isLidJid(m.chatJid))
+      m = { ...m, chatJid: known.phoneJid, phoneE164: known.phoneE164 };
+    const identityName = known?.name ?? null;
+
+    if (m.kind && !this.unknownKinds.has(m.kind) && m.type === 'other' && m.text?.startsWith('(')) {
+      this.unknownKinds.add(m.kind);
+      await recordSystemEvent(this.prisma, {
+        source: 'gateway',
+        level: 'info',
+        type: 'unhandled_message_kind',
+        message: `Tipo de mensagem ainda não tratado pela Central: ${m.kind}.`,
+      });
+    }
 
     // Contato: vincula ao existente; cria somente para quem escreveu agora (origem "mensagem recebida").
     let contact = m.phoneE164
@@ -89,7 +118,13 @@ export class InboxIngest {
             where: { id: existing.id },
             data: {
               contactId: existing.contactId ?? contact?.id ?? null,
-              title: existing.title ?? m.pushName ?? contact?.name ?? null,
+              title:
+                existing.title ??
+                identityName ??
+                (m.fromMe ? null : m.pushName) ??
+                contact?.name ??
+                null,
+              ...(!existing.phoneE164 && m.phoneE164 && { phoneE164: m.phoneE164 }),
               ...(newer && { lastMessageAt: m.timestamp, lastMessagePreview: preview }),
               ...(live && !m.fromMe && { unreadCount: { increment: 1 }, status: 'PENDING' }),
               ...(live && m.fromMe && { status: 'ANSWERED' }),
@@ -100,7 +135,8 @@ export class InboxIngest {
               accountId,
               remoteJid: m.chatJid,
               contactId: contact?.id ?? null,
-              title: (m.fromMe ? null : m.pushName) ?? contact?.name ?? null,
+              title: identityName ?? (m.fromMe ? null : m.pushName) ?? contact?.name ?? null,
+              phoneE164: m.phoneE164,
               lastMessageAt: m.timestamp,
               lastMessagePreview: preview,
               unreadCount: live && !m.fromMe ? 1 : 0,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertTimezone } from '@multizap/database';
 
 const base64Key = z
   .string()
@@ -19,6 +20,7 @@ const schema = z
     CREDENTIALS_MASTER_KEY: base64Key.optional().or(z.literal('')),
     INTERNAL_API_TOKEN: z.string().optional(),
     LOGIN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+    REPORTS_TZ: z.string().default('America/Sao_Paulo'),
     MAX_ASSET_MB: z.coerce.number().int().positive().max(512).default(64),
     MAX_IMPORT_MB: z.coerce.number().int().positive().max(1024).default(100),
     BULLMQ_PREFIX: z.string().min(1).default('bull'),
@@ -58,6 +60,7 @@ export type AppConfig = {
   queuePrefix: string;
   maxImportBytes: number;
   maxAssetBytes: number;
+  reportsTimezone: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -88,5 +91,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     queuePrefix: e.BULLMQ_PREFIX,
     maxImportBytes: e.MAX_IMPORT_MB * 1024 * 1024,
     maxAssetBytes: e.MAX_ASSET_MB * 1024 * 1024,
+    reportsTimezone: assertTimezone(e.REPORTS_TZ),
   };
 }

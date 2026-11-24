@@ -276,3 +276,29 @@
 
 - **Recebimento real não testado aqui** (sem rede até o WhatsApp). Validar no deploy: enviar uma mensagem de outro celular para o número conectado e responder pelo painel.
 - Vídeos, áudios e documentos recebidos aparecem identificados pelo tipo; apenas imagens são baixadas.
+
+## Fase 8: Relatórios ✅
+
+**Entregue**
+
+- **Banco:** `computeDailyMetrics` calcula por dia e instância, no fuso `REPORTS_TZ`, a partir das tabelas de origem: contatos, consentimentos, descadastros, campanhas criadas e concluídas, mensagens enviadas, entregues, lidas, falhas e respostas recebidas.
+- **Worker:** `MetricsRollup` consolida em `daily_metrics` os últimos 7 dias fechados a cada hora e preenche lacunas na inicialização. O dia de hoje é sempre calculado ao vivo.
+- **API:**
+  - `GET /reports/summary`: totais, período anterior de mesma duração, situação atual da base, série diária, totais por instância e campanhas com envios no período (taxas de entrega, leitura, resposta e falha);
+  - `GET /reports/export`: CSV (`;`, UTF-8 com BOM) ou XLSX, uma linha por dia e instância, mais o total.
+- **Painel `/relatorios`:**
+  - período (7, 30 ou 90 dias, este mês, personalizado) e filtro por instância;
+  - indicadores com variação em relação ao período anterior;
+  - gráfico de linhas por dia (enviadas, entregues, lidas, respostas) com legenda, rótulos diretos, dica ao passar o mouse e alternativa em tabela;
+  - tabelas por instância e por campanha;
+  - exportação CSV e XLSX.
+
+**Verificação**
+
+- Testes de API (fuso: 02:30 UTC conta no dia anterior em São Paulo; período anterior; resposta de campanha; filtro por instância; consolidado igual ao cálculo ao vivo; validação; conteúdo exato do CSV e do XLSX) e do worker (consolidação, recálculo, preenchimento de lacunas).
+- Navegador com os builds de produção.
+
+**Decisões**
+
+- Entregues e lidas são contadas sobre as mensagens enviadas em cada dia (coorte). Assim, as taxas nunca passam de 100%, e um dia passado pode subir quando chegam confirmações tardias.
+- "Contatos", "autorizados" e "descadastrados" do topo mostram a situação atual. O período mostra os novos cadastros e os descadastros.

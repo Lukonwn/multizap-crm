@@ -24,7 +24,7 @@ export interface ModuleDef {
 }
 
 /** Última fase concluída. */
-export const CURRENT_PHASE = 7;
+export const CURRENT_PHASE = 8;
 
 export const MODULES: ModuleDef[] = [
   {

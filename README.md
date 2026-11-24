@@ -9,14 +9,14 @@ CRM privado para gerenciar até **10 contas WhatsApp** em um único painel admin
 | Fase | Escopo                                                | Status       |
 | ---- | ----------------------------------------------------- | ------------ |
 | 1    | Fundação, autenticação e design system                | ✅ Concluída |
-| 2    | Dashboard e conexões (QR Code / código de pareamento) | ⏳ Próxima   |
-| 3    | Contatos e importações                                | —            |
-| 4    | Ferramentas de processamento                          | —            |
-| 5    | Biblioteca de criativos                               | —            |
-| 6    | Campanhas assistidas                                  | —            |
-| 7    | Central de mensagens                                  | —            |
-| 8    | Relatórios e analytics                                | —            |
-| 9    | System Health e segurança                             | —            |
+| 2    | Dashboard e conexões (QR Code / código de pareamento) | ✅ Concluída |
+| 3    | Contatos e importações                                | ✅ Concluída |
+| 4    | Ferramentas de processamento                          | ✅ Concluída |
+| 5    | Biblioteca de criativos                               | ✅ Concluída |
+| 6    | Campanhas assistidas                                  | ✅ Concluída |
+| 7    | Central de mensagens                                  | ✅ Concluída |
+| 8    | Relatórios e analytics                                | ✅ Concluída |
+| 9    | System Health e segurança                             | ⏳ Próxima   |
 | 10   | Testes, documentação e produção                       | —            |
 
 Detalhes e registro de cada fase: [`docs/PHASES.md`](docs/PHASES.md).

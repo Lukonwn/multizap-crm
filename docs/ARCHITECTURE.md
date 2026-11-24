@@ -199,3 +199,23 @@ Painel ──POST /conversations/:id/messages──▶ API (mensagem PENDING) �
 - **Sem duplicação:** a chave única `(account_id, provider_message_id)` e o tratamento do eco da própria sessão (`ReplySender` e `CampaignSender` fazem upsert e removem o rascunho) garantem um registro por mensagem.
 - **Respostas** só quando a instância está conectada, as operações não estão pausadas e o contato não pediu descadastramento, a não ser que ele tenha escrito de novo depois do pedido.
 - **Status das conversas:** `PENDING` (o contato escreveu), `ANSWERED` (houve resposta), `CLOSED` (finalizada pelo administrador; uma nova mensagem reabre), `OPEN` (vinda do histórico). "Não lidas" é um contador local, e o MultiZap não envia confirmação de leitura ao contato.
+
+## Relatórios (Fase 8)
+
+```
+fontes (contacts, consent_events, opt_outs, campaigns, campaign_recipients, messages)
+   └─ computeDailyMetrics (SQL, fuso REPORTS_TZ) ──▶ worker MetricsRollup (de hora em hora) ──▶ daily_metrics
+API GET /reports/summary ── loadDailyMetrics: dias fechados de daily_metrics + hoje ao vivo ──▶ painel /relatorios
+API GET /reports/export?format=csv|xlsx ──▶ uma linha por dia e instância + linha TOTAL
+```
+
+- **Somente dados registrados pelo MultiZap.** Nada é estimado; dias sem atividade aparecem com zero.
+- **Dias** são contados no fuso `REPORTS_TZ` (padrão `America/Sao_Paulo`); os timestamps ficam em UTC no banco.
+- **Definições:**
+  - enviadas: saídas aceitas pelo WhatsApp (SENT, DELIVERED, READ), no dia do envio;
+  - entregues e lidas: das enviadas naquele dia (coorte), então o número de um dia passado pode subir quando chegam confirmações;
+  - falhas: destinatários de campanha com falha + respostas manuais com falha;
+  - respostas: mensagens recebidas dos contatos; na tabela de campanhas, "respondeu" significa que o contato escreveu até 7 dias depois do envio.
+- **Consolidação:** o worker grava em `daily_metrics` os últimos 7 dias fechados a cada hora (para capturar confirmações tardias) e, na inicialização, preenche lacunas dos últimos 400 dias. Se faltar qualquer dia consolidado num intervalo, a API calcula o intervalo inteiro ao vivo, então o resultado é sempre correto.
+- **Comparação:** o período anterior tem a mesma duração e termina no dia anterior ao início.
+- **Indicadores de base** (contatos, autorizados, descadastrados) são a situação atual, não do período.

@@ -38,6 +38,7 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 | `CREDENTIALS_KEY_VERSION` | `1`                                                                                                                        |
 | `INTERNAL_API_TOKEN`      | String aleatória com 32 caracteres ou mais                                                                                 |
 | `ADMIN_EMAIL`             | E-mail do administrador                                                                                                    |
+| `REPORTS_TZ`              | Opcional. Fuso dos relatórios, padrão `America/Sao_Paulo` (o mesmo no worker)                                              |
 | `ADMIN_INITIAL_PASSWORD`  | Senha inicial (troca obrigatória no 1º login; pode ser removida depois)                                                    |
 
 ### multizap-web
@@ -48,13 +49,14 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 
 ### multizap-worker e multizap-gateway
 
-| Variável                  | Valor                                                |
-| ------------------------- | ---------------------------------------------------- |
-| `NODE_ENV`                | `production`                                         |
-| `DATABASE_URL`            | `${{Postgres.DATABASE_URL}}`                         |
-| `REDIS_URL`               | `${{Redis.REDIS_URL}}`                               |
-| `CREDENTIALS_MASTER_KEY`  | a mesma da API (somente gateway, a partir da Fase 2) |
-| `CREDENTIALS_KEY_VERSION` | `1`                                                  |
+| Variável                  | Valor                                                                 |
+| ------------------------- | --------------------------------------------------------------------- |
+| `NODE_ENV`                | `production`                                                          |
+| `DATABASE_URL`            | `${{Postgres.DATABASE_URL}}`                                          |
+| `REDIS_URL`               | `${{Redis.REDIS_URL}}`                                                |
+| `CREDENTIALS_MASTER_KEY`  | a mesma da API (somente gateway, a partir da Fase 2)                  |
+| `CREDENTIALS_KEY_VERSION` | `1`                                                                   |
+| `REPORTS_TZ`              | opcional, padrão `America/Sao_Paulo` (somente worker; o mesmo da API) |
 
 Gerar chaves:
 

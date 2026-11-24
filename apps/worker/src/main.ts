@@ -16,6 +16,8 @@ import { storageFromEnv } from '@multizap/storage';
 import { ImportProcessor } from './imports/processor';
 import { ToolJobProcessor } from './tools/processor';
 import { CampaignPreparer } from './campaigns/preparer';
+import { MetricsRollup } from './metrics/rollup';
+import { assertTimezone } from '@multizap/database';
 import { QUEUES } from './queues';
 
 /**
@@ -114,6 +116,14 @@ const scheduleTimer = setInterval(async () => {
 }, 60_000);
 scheduleTimer.unref();
 
+// Métricas diárias: backfill ao iniciar e consolidação a cada hora.
+const rollup = new MetricsRollup(prisma, assertTimezone(process.env.REPORTS_TZ || 'America/Sao_Paulo'), log);
+void rollup.backfill().then(() => rollup.run()).catch((err: unknown) => log('Falha ao consolidar métricas', { err: String(err) }));
+const metricsTimer = setInterval(() => {
+  rollup.run().catch((err: unknown) => log('Falha ao consolidar métricas', { err: String(err) }));
+}, 3_600_000);
+metricsTimer.unref();
+
 const stopHeartbeat = startHeartbeat(redis, HEARTBEAT_KEYS.worker, () => ({
   queues: Object.values(QUEUES),
 }));
@@ -126,6 +136,7 @@ onShutdown(async () => {
   stopHeartbeat();
   // aguarda os jobs atuais; jobs interrompidos são retomados pelo BullMQ
   clearInterval(scheduleTimer);
+  clearInterval(metricsTimer);
   await Promise.all([
     importWorker.close(),
     toolWorker.close(),

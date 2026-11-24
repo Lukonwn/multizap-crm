@@ -40,3 +40,16 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Navegador para os testes de ponta a ponta
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Testes de ponta a ponta (API, worker e painel reais)
+        run: pnpm test:e2e
+        env:
+          E2E_DATABASE_URL: postgresql://multizap:multizap@localhost:5432/multizap_test
+      - name: Relatório dos testes de ponta a ponta
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: tests/e2e/.data/
+          retention-days: 7

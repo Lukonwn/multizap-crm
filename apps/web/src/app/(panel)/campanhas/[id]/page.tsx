@@ -303,7 +303,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </Alert>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+      <div className="grid gap-6 xl:grid-cols-[1fr_340px] [&>*]:min-w-0">
         <div className="space-y-6">
           <Card>
             <CardHeader>

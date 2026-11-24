@@ -76,7 +76,7 @@ export default function DashboardPage() {
         description="Visão geral do MultiZap, atualizada automaticamente."
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard
           label="Instâncias"
           value={`${d.accounts.total}/${d.accounts.limit}`}
@@ -110,7 +110,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         <StatCard
           label="Contatos"
           value={formatNumber(d.contacts.total)}

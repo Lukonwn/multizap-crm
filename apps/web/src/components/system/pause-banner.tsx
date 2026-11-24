@@ -10,7 +10,7 @@ export function PauseBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warning/30 bg-warning-soft px-8 py-2 text-sm text-warning"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warning/30 bg-warning-soft px-4 py-2 lg:px-8 text-sm text-warning"
     >
       <PauseCircle className="h-4 w-4 shrink-0" aria-hidden />
       <span className="font-medium">Operações pausadas.</span>

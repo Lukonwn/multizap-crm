@@ -122,7 +122,7 @@ export default function SettingsPage() {
         title="Configurações"
         description="Conta do administrador e segurança do acesso."
       />
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
         <Card>
           <CardHeader>
             <div>

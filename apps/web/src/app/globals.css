@@ -3,3 +3,14 @@
 
 /* Tailwind deve escanear os componentes do design system. */
 @source '../../../../packages/ui/src';
+
+/*
+ * Itens de grid não crescem além da coluna por causa do conteúdo (tabelas,
+ * textos longos): o conteúdo largo rola dentro do próprio contêiner, e a
+ * página nunca ganha rolagem horizontal no celular.
+ */
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
+}

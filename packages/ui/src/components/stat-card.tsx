@@ -34,7 +34,7 @@ export function StatCard({
   return (
     <div
       className={cn(
-        'group rounded-card border border-border bg-surface p-5 shadow-card',
+        'group rounded-card border border-border bg-surface p-4 shadow-card sm:p-5',
         'transition-colors hover:border-border-strong animate-slide-up',
         className,
       )}
@@ -42,7 +42,9 @@ export function StatCard({
       <div className="flex min-h-8 items-start justify-between gap-3">
         <p className="text-xs font-medium text-muted">{label}</p>
         {Icon && (
-          <span className={cn('grid h-8 w-8 place-items-center rounded-lg', iconTones[tone])}>
+          <span
+            className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', iconTones[tone])}
+          >
             <Icon className="h-4 w-4" aria-hidden />
           </span>
         )}

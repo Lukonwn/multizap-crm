@@ -21,3 +21,6 @@ next-env.d.ts
 
 # Redis local
 *.rdb
+
+# Testes de ponta a ponta
+tests/e2e/.data/

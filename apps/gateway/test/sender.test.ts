@@ -186,8 +186,19 @@ describe('envio assistido (gateway)', () => {
 
   it('marca para conferência envios interrompidos por reinício', async () => {
     const r = await recipient();
+    // Reservado há 2 minutos (interrompido); um envio recente não é tocado.
+    await prisma.campaignRecipient.update({
+      where: { id: r.id },
+      data: { status: 'SENDING', updatedAt: new Date(Date.now() - 120_000) },
+    });
+    expect(await sender.recoverInterrupted(60_000)).toBe(1);
     await prisma.campaignRecipient.update({ where: { id: r.id }, data: { status: 'SENDING' } });
-    expect(await sender.recoverInterrupted(0)).toBe(1);
+    expect(await sender.recoverInterrupted(60_000)).toBe(0);
+    await prisma.campaignRecipient.update({
+      where: { id: r.id },
+      data: { updatedAt: new Date(Date.now() - 120_000) },
+    });
+    expect(await sender.recoverInterrupted(60_000)).toBe(1);
     expect((await prisma.campaignRecipient.findUniqueOrThrow({ where: { id: r.id } })).status).toBe(
       'FAILED',
     );

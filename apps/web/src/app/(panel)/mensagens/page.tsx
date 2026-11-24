@@ -14,6 +14,7 @@ import {
   Search,
   Send,
   XCircle,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   CONSENT_LABEL,
@@ -245,7 +246,7 @@ function ContactPanel({ id }: { id: string }) {
   );
 }
 
-function Thread({ id }: { id: string }) {
+function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const qc = useQueryClient();
   const conv = useConversation(id);
   const messages = useMessages(id);
@@ -303,8 +304,16 @@ function Thread({ id }: { id: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+        <button
+          type="button"
+          onClick={onBack}
+          className="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg md:hidden"
+          aria-label="Voltar para a lista de conversas"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{displayName(c)}</p>
           <p className="text-xs text-muted">
             {c.phoneE164 ? formatPhone(c.phoneE164) : 'Número não informado'} · {c.accountName}
@@ -390,8 +399,14 @@ export default function InboxPage() {
   const items = convs.data?.items ?? [];
 
   return (
-    <div className="-mx-8 -my-8 grid h-[calc(100vh-4rem)] grid-cols-[340px_1fr] overflow-hidden xl:grid-cols-[340px_1fr_300px]">
-      <aside className="flex min-h-0 flex-col border-r border-border bg-bg-soft">
+    <div className="-mx-4 -my-6 grid h-[calc(100vh-4rem)] grid-cols-1 overflow-hidden sm:-mx-6 md:grid-cols-[300px_1fr] lg:-mx-8 lg:-my-8 lg:grid-cols-[340px_1fr] xl:grid-cols-[340px_1fr_300px]">
+      {/* Celular: mostra a lista ou a conversa aberta. */}
+      <aside
+        className={cn(
+          'min-h-0 flex-col border-r border-border bg-bg-soft md:flex',
+          selected ? 'hidden' : 'flex',
+        )}
+      >
         <div className="space-y-2 border-b border-border p-3">
           <Select
             value={accountId}
@@ -514,9 +529,9 @@ export default function InboxPage() {
         </p>
       </aside>
 
-      <section className="min-h-0 min-w-0">
+      <section className={cn('min-h-0 min-w-0', !selected && 'hidden md:block')}>
         {selected ? (
-          <Thread key={selected} id={selected} />
+          <Thread key={selected} id={selected} onBack={() => setSelected(null)} />
         ) : (
           <div className="grid h-full place-items-center">
             <EmptyState

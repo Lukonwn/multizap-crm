@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
 import type { ImportQueue, ToolQueue } from './lib/queues';
 import { toolRoutes } from './modules/tools/routes';
+import { assetRoutes } from './modules/assets/routes';
 import { contactRoutes } from './modules/contacts/routes';
 import { importRoutes } from './modules/imports/routes';
 import type { Redis } from 'ioredis';
@@ -82,7 +83,11 @@ export async function buildApp({
 
   await app.register(sensible);
   await app.register(multipart, {
-    limits: { fileSize: config.maxImportBytes, files: 1, fields: 5 },
+    limits: {
+      fileSize: Math.max(config.maxImportBytes, config.maxAssetBytes),
+      files: 1,
+      fields: 5,
+    },
   });
   await app.register(securityPlugin, { webOrigin: config.webOrigin });
   await app.register(authPlugin, { sessionIdleMs: config.sessionIdleMs });
@@ -126,6 +131,7 @@ export async function buildApp({
   await app.register(contactRoutes);
   await app.register(importRoutes);
   await app.register(toolRoutes);
+  await app.register(assetRoutes);
 
   return app;
 }

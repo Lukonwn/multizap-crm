@@ -111,10 +111,17 @@ export function authed(s: Session, withCsrf = true) {
   return { cookie: s.cookie, origin: WEB_ORIGIN, ...(withCsrf && { 'x-csrf-token': s.csrf }) };
 }
 
-/** Corpo multipart/form-data com um único arquivo. */
-export function multipart(fileName: string, content: Buffer | string) {
+/** Corpo multipart/form-data com um único arquivo (campos antes do arquivo). */
+export function multipart(
+  fileName: string,
+  content: Buffer | string,
+  fields: Record<string, string> = {},
+) {
   const boundary = `----mz${Date.now()}`;
   const body = Buffer.concat([
+    ...Object.entries(fields).map(([k, v]) =>
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`),
+    ),
     Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
     ),

@@ -140,3 +140,38 @@
 **Pendências conhecidas**
 
 - Arquivos enviados para as ferramentas e não usados, e resultados antigos, permanecem no bucket. A limpeza automática (retenção configurável) entra na Fase 9.
+
+## Fase 5: Biblioteca de criativos ✅
+
+**Entregue**
+
+- **API:**
+  - pastas aninhadas: criar, renomear, mover com proteção contra ciclos, excluir só quando vazia;
+  - upload de imagens, banners e arquivos, com tipo identificado pelo conteúdo, dimensões, miniatura, SHA-256 e bloqueio de duplicados;
+  - textos, links (somente http/https) e modelos com variáveis validadas;
+  - pesquisa por nome, conteúdo e endereço; filtros por pasta e tipo;
+  - edição revalidada conforme o tipo;
+  - exclusão que remove os arquivos do bucket, bloqueada se o criativo estiver em campanha ativa;
+  - histórico de utilização;
+  - arquivos servidos com cabeçalhos de segurança.
+- **Painel:**
+  - biblioteca com árvore de pastas, filtros, pesquisa e grade com miniaturas;
+  - envio de vários arquivos com progresso;
+  - editor de texto, link e modelo com inserção de variáveis e pré-visualização;
+  - detalhe com visualização (imagem, vídeo, áudio), metadados, mover entre pastas, download, histórico de uso e exclusão.
+
+**Verificação**
+
+- 161 testes, 11 deles da biblioteca. Incluem: executável disfarçado de PNG, SVG com script, imagem corrompida, PDF com extensão errada, duplicado, variável inexistente, link `javascript:`, ciclo de pastas e exclusão com remoção do arquivo.
+- Navegador, com os builds de produção:
+  - pastas e subpastas, envio de 3 imagens (JPEG, PNG, WebP) com miniaturas;
+  - duplicado identificado;
+  - modelo com variável e pré-visualização;
+  - link inseguro recusado;
+  - pesquisa por conteúdo e filtro por tipo;
+  - dimensões 1200 × 628 registradas;
+  - **miniatura carregada do armazenamento depois de reiniciar a API**.
+
+**Ajuste feito durante a verificação**
+
+- As miniaturas de banners largos apareciam cortadas no card. Agora a imagem é exibida inteira.

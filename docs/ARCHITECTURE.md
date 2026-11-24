@@ -146,3 +146,17 @@ Painel ──POST /tools/uploads──▶ API ──▶ bucket (tools/uploads/�
 - Telefones são analisados com os metadados completos do libphonenumber (`/max`), que trazem tipo (celular ou fixo), país, DDD e UF.
 - A validação é sempre **estrutural**: nenhuma ferramenta consulta o WhatsApp.
 - O worker grava as saídas em disco temporário, o que permite dezenas de saídas simultâneas (por exemplo, uma por DDD) sem consumir memória. Depois envia os arquivos ao bucket e remove o diretório.
+
+## Biblioteca de criativos (Fase 5)
+
+- A biblioteca é **compartilhada entre as instâncias**: criativos não contêm dados de contatos. Organiza-se em pastas aninhadas, e uma pasta só pode ser excluída vazia.
+- **Tipos:** imagem, banner, arquivo (MP4, MP3, OGG, PDF), texto, link e modelo de mensagem.
+- **Segurança dos uploads:**
+  - o tipo é identificado pela **assinatura do conteúdo** (`lib/mime.ts`); a extensão e o Content-Type do navegador são ignorados;
+  - SVG não é aceito;
+  - imagens são decodificadas pelo `sharp`, o que confirma a integridade, mede as dimensões e gera a miniatura WebP de 480 px;
+  - os arquivos são servidos com `Content-Security-Policy: sandbox`, `nosniff` e `inline` apenas para mídia.
+- **Duplicados:** um arquivo com o mesmo SHA-256 não é armazenado duas vezes.
+- **Modelos:** variáveis `{{nome}}`, `{{primeiro_nome}}` e `{{telefone}}`, validadas na criação e na edição. `renderTemplate` (shared) será usado pelas campanhas. Textos são limitados a 4.096 caracteres.
+- **Uso em campanhas:** `asset_usages` alimenta o histórico de utilização. Um criativo em campanha agendada ou ativa não pode ser excluído.
+- **Armazenamento:** `assets/<id>/original.<ext>` e `assets/<id>/thumb.webp`, no bucket.

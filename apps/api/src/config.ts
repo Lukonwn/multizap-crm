@@ -19,6 +19,7 @@ const schema = z
     CREDENTIALS_MASTER_KEY: base64Key.optional().or(z.literal('')),
     INTERNAL_API_TOKEN: z.string().optional(),
     LOGIN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+    BULLMQ_PREFIX: z.string().min(1).default('bull'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   })
   .superRefine((env, ctx) => {
@@ -52,6 +53,7 @@ export type AppConfig = {
   internalApiToken?: string;
   logLevel: string;
   loginRateLimitPerMinute: number;
+  queuePrefix: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -79,5 +81,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     internalApiToken: e.INTERNAL_API_TOKEN || undefined,
     logLevel: e.LOG_LEVEL,
     loginRateLimitPerMinute: e.LOGIN_RATE_LIMIT_PER_MINUTE,
+    queuePrefix: e.BULLMQ_PREFIX,
   };
 }

@@ -81,6 +81,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Gateway e deploys
 
+> ⚠️ **Rode apenas uma réplica do gateway.** A trava por instância no Redis impede que duas réplicas controlem a mesma sessão, mas não há ganho em escalar horizontalmente: as 10 sessões cabem com folga em um processo.
+
+> O gateway precisa de saída de rede para `web.whatsapp.com` (WebSocket). A rede padrão da Railway permite.
+
 O gateway usa `overlapSeconds: 0` e `drainingSeconds: 30`: a instância antiga encerra as conexões de forma graciosa antes que a nova assuma. Além disso, a trava por instância no Redis (Fase 2) impede dois donos simultâneos para a mesma sessão.
 
 ## Primeiro deploy (checklist)

@@ -8,12 +8,17 @@ import securityPlugin from './plugins/security';
 import authPlugin from './plugins/auth';
 import { authRoutes } from './modules/auth/routes';
 import { healthRoutes } from './modules/health/routes';
+import { accountRoutes } from './modules/accounts/routes';
+import { notificationRoutes } from './modules/notifications/routes';
+import { dashboardRoutes } from './modules/dashboard/routes';
+import type { GatewayClient } from './lib/gateway';
 
 declare module 'fastify' {
   interface FastifyInstance {
     prisma: PrismaClient;
     redis: Redis | null;
     config: AppConfig;
+    gateway: GatewayClient | null;
   }
 }
 
@@ -21,6 +26,7 @@ export interface BuildDeps {
   config: AppConfig;
   prisma: PrismaClient;
   redis: Redis | null;
+  gateway?: GatewayClient | null;
   logger?: boolean;
 }
 
@@ -28,6 +34,7 @@ export async function buildApp({
   config,
   prisma,
   redis,
+  gateway = null,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -53,6 +60,7 @@ export async function buildApp({
   app.decorate('prisma', prisma);
   app.decorate('redis', redis);
   app.decorate('config', config);
+  app.decorate('gateway', gateway);
 
   await app.register(sensible);
   await app.register(securityPlugin, { webOrigin: config.webOrigin });
@@ -91,6 +99,9 @@ export async function buildApp({
     secureCookies: config.isProduction,
     loginRateLimitPerMinute: config.loginRateLimitPerMinute,
   });
+  await app.register(accountRoutes);
+  await app.register(notificationRoutes);
+  await app.register(dashboardRoutes);
 
   return app;
 }

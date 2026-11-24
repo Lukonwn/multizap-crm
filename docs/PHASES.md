@@ -25,3 +25,41 @@
 **Pendências conhecidas**
 
 - Confirmar no primeiro deploy se a Railway reconheceu as chaves de `railway.json` (ver DEPLOY.md).
+
+## Fase 2: Dashboard e conexões ✅
+
+**Entregue**
+
+- **Gateway** (`apps/gateway`) com Baileys 7.0.0-rc14:
+  - `SessionManager`: pareamento por QR Code e por número de telefone (código de 8 caracteres emitido via protocolo do WhatsApp), restauração após reinícios, reconexão com backoff, tratamento de logout, sessão substituída e acesso recusado;
+  - trava por instância no Redis;
+  - credenciais e chaves de sinalização criptografadas no PostgreSQL (`DbAuthStore`);
+  - fila de comandos BullMQ.
+- **API:**
+  - CRUD de instâncias, com limite de 10 garantido por trava transacional (testado com 13 requisições simultâneas);
+  - pareamento (iniciar, consultar estado, cancelar), reconectar, desativar e reativar;
+  - remover conexão e excluir instância, ambas com confirmação pelo nome;
+  - histórico de eventos, notificações e resumo do dashboard;
+  - auditoria de todas as ações.
+- **Painel:**
+  - lista de Conexões com cadastro (dispositivo conectado ou aparelho externo);
+  - modal de pareamento: QR com contagem regressiva e instruções, alternativa "Conectar com número de telefone", estados de expirado, falha e sucesso;
+  - detalhe da instância (conexão, recursos por fase, histórico, ações administrativas);
+  - Dashboard com indicadores, distribuição de status, saúde das conexões, alertas e atividades recentes;
+  - sino de notificações.
+- O aparelho externo é exibido como "Apenas cadastrado": sem pareamento, sem envio, com atalho para o WhatsApp Web.
+
+**Verificação**
+
+- 85 testes: shared 19, gateway 24 (com conexão simulada + PostgreSQL e Redis reais), API 42.
+- Gateway real em execução: o pareamento chegou ao Baileys, e a ausência de rede até o WhatsApp neste ambiente (`ENOTFOUND web.whatsapp.com`) foi registrada e exibida como falha, sem QR inventado.
+- Verificação visual das telas de QR, código, sucesso, lista, detalhe, dashboard e notificações. O roteiro de teste escreveu os estados no Redis e no banco no lugar do gateway; esse roteiro não faz parte do produto.
+
+**Decisões**
+
+- ADR 0004: versão do Baileys e sincronização inicial de histórico mantida (exigência do Baileys 7 para os mapeamentos LID).
+
+**Pendências conhecidas**
+
+- **O pareamento real com um celular não pôde ser testado aqui** (sem rede até o WhatsApp). Validar no primeiro deploy: ler o QR, usar o código por número e reiniciar o gateway para confirmar a restauração.
+- Credenciais ilegíveis (por exemplo, `CREDENTIALS_MASTER_KEY` trocada sem manter a versão anterior) levam a tentativas de reconexão sem notificação específica. O tratamento dedicado entra na Fase 9.

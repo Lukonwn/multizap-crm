@@ -6,7 +6,7 @@ const isDev = process.env.NODE_ENV === 'development';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@multizap/ui', '@multizap/shared'],
+  transpilePackages: ['@multizap/ui', '@multizap/shared', '@multizap/integrations'],
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   async headers() {
     return [

@@ -1,6 +1,6 @@
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge, Card, PageHeader } from '@multizap/ui';
-import { moduleByKey } from '@/lib/modules';
+import { CURRENT_PHASE, moduleByKey } from '@/lib/modules';
 
 /**
  * Tela de módulo ainda não implementado. Exibe claramente a fase prevista,
@@ -45,7 +45,8 @@ export function ModulePending({ moduleKey }: { moduleKey: string }) {
         </div>
         <div className="flex items-center gap-2 border-t border-border bg-bg-soft/60 px-6 py-3 text-xs text-subtle">
           <CheckCircle2 className="h-3.5 w-3.5 text-accent" aria-hidden />
-          Fase 1 concluída: fundação, autenticação e design system.
+          Fases concluídas: 1 a {CURRENT_PHASE}. Os módulos são liberados conforme o plano de
+          desenvolvimento.
         </div>
       </Card>
     </>

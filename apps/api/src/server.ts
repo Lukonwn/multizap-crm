@@ -2,6 +2,7 @@ import { ensureBootstrapAdmin, getPrisma } from '@multizap/database';
 import { loadConfig } from './config';
 import { buildApp } from './app';
 import { createRedis } from './lib/redis';
+import { GatewayClient } from './lib/gateway';
 
 const config = loadConfig();
 const prisma = getPrisma();
@@ -11,7 +12,9 @@ redis?.on('error', () => {
 });
 await redis?.connect().catch(() => undefined);
 
-const app = await buildApp({ config, prisma, redis });
+const gateway =
+  redis && config.redisUrl ? new GatewayClient(config.redisUrl, redis, config.queuePrefix) : null;
+const app = await buildApp({ config, prisma, redis, gateway });
 
 const bootstrap = await ensureBootstrapAdmin(prisma, config.bootstrapAdmin);
 if (bootstrap === 'created') app.log.info('Administrador inicial criado a partir de ADMIN_EMAIL.');
@@ -21,6 +24,7 @@ if (bootstrap === 'skipped')
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, 'Encerrando API');
   await app.close();
+  await gateway?.close();
   await prisma.$disconnect();
   redis?.disconnect();
   process.exit(0);

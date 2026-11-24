@@ -65,3 +65,30 @@ Definido em [`prisma/schema.prisma`](../prisma/schema.prisma), com 30 tabelas, t
 ## Build
 
 Os pacotes internos são consumidos como TypeScript. A API, o worker e o gateway são empacotados com tsup (o código `@multizap/*` é embutido e as dependências de terceiros ficam externas). O web usa `transpilePackages`. O pnpm usa `node-linker=hoisted` para que o Prisma Client gerado seja único no monorepo.
+
+## Conexões WhatsApp (Fase 2)
+
+```
+Painel ──POST /accounts/:id/pairing──▶ API ──fila BullMQ "gateway-commands"──▶ Gateway ──WebSocket──▶ WhatsApp
+   ▲                                    │                                         │
+   └──GET /accounts/:id/pairing (1,5 s)─┴──── Redis: multizap:pairing:<id> ◀───────┤ QR / código / estado (efêmero, TTL 180 s)
+                                                                                  └─▶ PostgreSQL: status, eventos, notificações,
+                                                                                      credenciais criptografadas (durável)
+```
+
+- **Comandos** (`start-pairing`, `cancel-pairing`, `reconnect`, `stop`, `remove`) passam por uma fila persistente, então não se perdem se o gateway estiver reiniciando. A API devolve 503 se o gateway não estiver vivo (heartbeat), exceto ao remover conexão: nesse caso a própria API apaga as credenciais.
+- **Estado efêmero do pareamento** (QR, código, expirado ou falha) fica no Redis. O painel consulta a cada 1,5 s enquanto o modal está aberto.
+- **Estado durável** (status, motivo, histórico, notificações) fica no PostgreSQL e é gravado pelo gateway.
+- **Credenciais da sessão:** `DbAuthStore` substitui o armazenamento em arquivo do Baileys. Grava `integrations.credentials_enc` e `integration_keys`, sempre com AES-256-GCM e AAD `account:<id>:…`.
+- **Restauração:** `SessionManager.reconcile()` roda ao iniciar e a cada 30 s. Restaura toda instância pareada que não está desativada, não exige novo pareamento e não teve a sessão aberta em outro local.
+- **Encerramento gracioso:** os sockets fecham **sem logout**, então as credenciais permanecem e a próxima versão restaura as sessões.
+
+| Evento do WhatsApp                 | Resultado                                                                                                      |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| QR lido / código confirmado        | `CONNECTED`, credenciais persistidas, `pairedAt` registrado                                                    |
+| `restart required` (após parear)   | reabre imediatamente                                                                                           |
+| Queda temporária (408/428/500/503) | `DISCONNECTED` → reconexão com backoff (2 s … 5 min). Após 3 falhas, `ATTENTION` + notificação. Nada é apagado |
+| Logout (401) / mismatch (411)      | `NEEDS_REPAIR` + notificação. Sem reconexão automática. Credenciais mantidas até ação manual                   |
+| Sessão substituída (440)           | `ATTENTION` + notificação. Reconexão só manual                                                                 |
+| Acesso recusado (403)              | `ATTENTION` + notificação crítica. Reconexão só manual                                                         |
+| QR expirado                        | `NOT_CONFIGURED` (`pairing_expired`)                                                                           |

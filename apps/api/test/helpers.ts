@@ -4,6 +4,7 @@ import { createPrisma, type PrismaClient } from '@multizap/database';
 import { hashPassword } from '@multizap/shared/password';
 import { CSRF_COOKIE, SESSION_COOKIE } from '@multizap/shared';
 import { buildApp } from '../src/app';
+import { GatewayClient } from '../src/lib/gateway';
 import { loadConfig } from '../src/config';
 
 export const WEB_ORIGIN = 'http://localhost:3000';
@@ -11,7 +12,7 @@ export const ADMIN = { email: 'admin@multizap.local', password: 'Senha-Inicial-1
 
 export async function setupTestApp(
   env: Record<string, string> = {},
-): Promise<{ app: FastifyInstance; prisma: PrismaClient; redis: Redis }> {
+): Promise<{ app: FastifyInstance; prisma: PrismaClient; redis: Redis; gateway: GatewayClient }> {
   const url = process.env.TEST_DATABASE_URL!;
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -24,9 +25,12 @@ export async function setupTestApp(
   const prisma = createPrisma(url);
   const redis = new Redis(config.redisUrl!, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
-  const app = await buildApp({ config, prisma, redis, logger: false });
+  // Prefixo próprio: a fila de testes nunca é consumida por um gateway real.
+  const gateway = new GatewayClient(config.redisUrl!, redis, 'mztest');
+  const app = await buildApp({ config, prisma, redis, gateway, logger: false });
+  app.addHook('onClose', () => gateway.close());
   await app.ready();
-  return { app, prisma, redis };
+  return { app, prisma, redis, gateway };
 }
 
 export async function resetDb(prisma: PrismaClient) {

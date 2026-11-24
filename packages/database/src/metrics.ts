@@ -20,12 +20,18 @@ export interface DailyMetricRow {
 
 /** Data de hoje (YYYY-MM-DD) no fuso informado. */
 export function todayIn(tz: string, now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
 }
 
 /** Garante um nome de fuso IANA válido (usado dentro do SQL). */
 export function assertTimezone(tz: string): string {
-  if (!/^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)*$/.test(tz)) throw new Error(`Fuso horário inválido: ${tz}`);
+  if (!/^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)*$/.test(tz))
+    throw new Error(`Fuso horário inválido: ${tz}`);
   new Intl.DateTimeFormat('en-US', { timeZone: tz }); // lança RangeError se não existir
   return tz;
 }
@@ -37,7 +43,9 @@ export function addDays(day: string, n: number): string {
 }
 
 export function daysBetween(from: string, to: string): number {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  return (
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+  );
 }
 
 /**
@@ -51,11 +59,17 @@ export function daysBetween(from: string, to: string): number {
  *  - contatos, consentimentos e descadastros: pelo dia do registro.
  * Os timestamps são gravados em UTC e convertidos para o fuso `tz`.
  */
-export async function computeDailyMetrics(db: Db, from: string, to: string, tz: string): Promise<DailyMetricRow[]> {
+export async function computeDailyMetrics(
+  db: Db,
+  from: string,
+  to: string,
+  tz: string,
+): Promise<DailyMetricRow[]> {
   assertTimezone(tz);
   const lo = Prisma.sql`((${from}::date)::timestamp AT TIME ZONE ${tz}) AT TIME ZONE 'UTC'`;
   const hi = Prisma.sql`(((${to}::date + 1))::timestamp AT TIME ZONE ${tz}) AT TIME ZONE 'UTC'`;
-  const day = (col: string) => Prisma.raw(`((${col} AT TIME ZONE 'UTC') AT TIME ZONE '${tz}')::date`);
+  const day = (col: string) =>
+    Prisma.raw(`((${col} AT TIME ZONE 'UTC') AT TIME ZONE '${tz}')::date`);
 
   const rows = await db.$queryRaw<
     {
@@ -147,13 +161,22 @@ export async function storeDailyMetrics(db: PrismaClient, rows: DailyMetricRow[]
  * (anteriores a hoje) e calcula ao vivo o restante. Se faltar algum dia
  * consolidado, calcula o intervalo inteiro ao vivo (sempre correto).
  */
-export async function loadDailyMetrics(db: PrismaClient, from: string, to: string, tz: string): Promise<DailyMetricRow[]> {
+export async function loadDailyMetrics(
+  db: PrismaClient,
+  from: string,
+  to: string,
+  tz: string,
+): Promise<DailyMetricRow[]> {
   const today = todayIn(tz);
   const closedTo = to < today ? to : addDays(today, -1);
   if (closedTo < from) return computeDailyMetrics(db, from, to, tz);
 
   const [stored, accounts] = await Promise.all([
-    db.dailyMetric.findMany({ where: { date: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${closedTo}T00:00:00Z`) } } }),
+    db.dailyMetric.findMany({
+      where: {
+        date: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${closedTo}T00:00:00Z`) },
+      },
+    }),
     db.account.count(),
   ]);
   const expected = daysBetween(from, closedTo) * accounts;

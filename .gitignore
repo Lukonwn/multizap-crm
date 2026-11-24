@@ -7,8 +7,12 @@ coverage/
 .env
 .env.*
 !.env.example
-storage/
-backups/
+# Arquivos locais de desenvolvimento (STORAGE_LOCAL_DIR / BACKUP_LOCAL_DIR),
+# só na raiz e nas pastas dos apps — nunca o pacote packages/storage.
+/storage/
+/backups/
+apps/*/storage/
+apps/*/backups/
 test-results/
 playwright-report/
 .DS_Store

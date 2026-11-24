@@ -8,8 +8,14 @@ export const reportQuerySchema = z
     to: day,
     accountId: z.string().uuid().optional(),
   })
-  .refine((q) => q.from <= q.to, { message: 'A data inicial deve ser anterior à final.', path: ['from'] })
-  .refine((q) => (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 <= 366, { message: 'Período máximo de 1 ano.', path: ['to'] });
+  .refine((q) => q.from <= q.to, {
+    message: 'A data inicial deve ser anterior à final.',
+    path: ['from'],
+  })
+  .refine((q) => (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 <= 366, {
+    message: 'Período máximo de 1 ano.',
+    path: ['to'],
+  });
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 
 export interface ReportTotals {

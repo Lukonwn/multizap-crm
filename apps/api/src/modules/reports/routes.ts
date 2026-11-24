@@ -1,6 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { Prisma, addDays, daysBetween, loadDailyMetrics, type DailyMetricRow } from '@multizap/database';
+import {
+  Prisma,
+  addDays,
+  daysBetween,
+  loadDailyMetrics,
+  type DailyMetricRow,
+} from '@multizap/database';
 import { writerToStream } from '@multizap/files';
 import {
   REPORT_METRIC_LABEL,
@@ -13,11 +19,13 @@ import {
 import { parse } from '../../lib/validate';
 
 const KEYS = Object.keys(REPORT_METRIC_LABEL) as (keyof ReportTotals)[];
-const zero = (): ReportTotals => Object.fromEntries(KEYS.map((k) => [k, 0])) as unknown as ReportTotals;
+const zero = (): ReportTotals =>
+  Object.fromEntries(KEYS.map((k) => [k, 0])) as unknown as ReportTotals;
 
 function sumRows(rows: DailyMetricRow[]): ReportTotals {
   const t = zero();
-  for (const r of rows) for (const k of KEYS) if (k !== 'campaignsCreated' && k !== 'campaignsCompleted') t[k] += r[k];
+  for (const r of rows)
+    for (const k of KEYS) if (k !== 'campaignsCreated' && k !== 'campaignsCompleted') t[k] += r[k];
   return t;
 }
 
@@ -33,16 +41,34 @@ async function campaignCounts(app: FastifyInstance, q: ReportQuery, tz: string) 
       count(*) FILTER (WHERE c.created_at >= ${lo} AND c.created_at < ${hi}) created,
       count(*) FILTER (WHERE c.status = 'COMPLETED' AND c.completed_at >= ${lo} AND c.completed_at < ${hi}) completed
     FROM campaigns c WHERE true ${byAccount}`;
-  return { campaignsCreated: Number(r?.created ?? 0), campaignsCompleted: Number(r?.completed ?? 0) };
+  return {
+    campaignsCreated: Number(r?.created ?? 0),
+    campaignsCompleted: Number(r?.completed ?? 0),
+  };
 }
 
 /** Desempenho das campanhas com envios no período (respostas: mensagem recebida até 7 dias após o envio). */
-async function campaignRows(app: FastifyInstance, q: ReportQuery, tz: string): Promise<ReportCampaignRow[]> {
+async function campaignRows(
+  app: FastifyInstance,
+  q: ReportQuery,
+  tz: string,
+): Promise<ReportCampaignRow[]> {
   const lo = Prisma.sql`((${q.from}::date)::timestamp AT TIME ZONE ${tz}) AT TIME ZONE 'UTC'`;
   const hi = Prisma.sql`(((${q.to}::date + 1))::timestamp AT TIME ZONE ${tz}) AT TIME ZONE 'UTC'`;
   const acc = q.accountId ? Prisma.sql`AND r.account_id = ${q.accountId}::uuid` : Prisma.empty;
   const rows = await app.prisma.$queryRaw<
-    { id: string; name: string; status: string; recipients: bigint; sent: bigint; delivered: bigint; read: bigint; failed: bigint; skipped: bigint; replied: bigint }[]
+    {
+      id: string;
+      name: string;
+      status: string;
+      recipients: bigint;
+      sent: bigint;
+      delivered: bigint;
+      read: bigint;
+      failed: bigint;
+      skipped: bigint;
+      replied: bigint;
+    }[]
   >`
     SELECT c.id, c.name, c.status::text AS status,
       count(r.id) recipients,
@@ -86,7 +112,9 @@ export async function reportRoutes(app: FastifyInstance) {
   const tz = app.config.reportsTimezone;
 
   const load = async (q: ReportQuery) => {
-    const rows = (await loadDailyMetrics(prisma, q.from, q.to, tz)).filter((r) => !q.accountId || r.accountId === q.accountId);
+    const rows = (await loadDailyMetrics(prisma, q.from, q.to, tz)).filter(
+      (r) => !q.accountId || r.accountId === q.accountId,
+    );
     return rows;
   };
 
@@ -105,7 +133,9 @@ export async function reportRoutes(app: FastifyInstance) {
     const contactWhere = q.accountId ? { accountId: q.accountId } : {};
     const [contacts, authorized, optedOut, campaignTable] = await Promise.all([
       prisma.contact.count({ where: contactWhere }),
-      prisma.contact.count({ where: { ...contactWhere, consentStatus: 'GRANTED', optedOutAt: null } }),
+      prisma.contact.count({
+        where: { ...contactWhere, consentStatus: 'GRANTED', optedOutAt: null },
+      }),
       prisma.contact.count({ where: { ...contactWhere, optedOutAt: { not: null } } }),
       campaignRows(app, q, tz),
     ]);
@@ -150,22 +180,47 @@ export async function reportRoutes(app: FastifyInstance) {
 
   /** Exportação: uma linha por dia e instância, com totais. */
   app.get('/reports/export', auth, async (req, reply) => {
-    const { format, ...rest } = parse(z.object({ format: z.enum(['csv', 'xlsx']).default('csv') }).passthrough(), req.query);
+    const { format, ...rest } = parse(
+      z.object({ format: z.enum(['csv', 'xlsx']).default('csv') }).passthrough(),
+      req.query,
+    );
     const q = parse(reportQuerySchema, rest);
     const rows = await load(q);
-    const names = new Map((await prisma.account.findMany({ select: { id: true, name: true } })).map((a) => [a.id, a.name]));
+    const names = new Map(
+      (await prisma.account.findMany({ select: { id: true, name: true } })).map((a) => [
+        a.id,
+        a.name,
+      ]),
+    );
     const cols = KEYS.filter((k) => k !== 'campaignsCreated' && k !== 'campaignsCompleted');
     const { writer, stream } = writerToStream(format);
     reply
-      .header('content-type', format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv; charset=utf-8')
-      .header('content-disposition', `attachment; filename="relatorio-${q.from}-a-${q.to}.${format}"`)
+      .header(
+        'content-type',
+        format === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv; charset=utf-8',
+      )
+      .header(
+        'content-disposition',
+        `attachment; filename="relatorio-${q.from}-a-${q.to}.${format}"`,
+      )
       .header('cache-control', 'no-store');
     void (async () => {
       try {
         await writer.write(['data', 'instancia', ...cols.map((k) => REPORT_METRIC_LABEL[k])]);
-        for (const r of rows) await writer.write([r.day, names.get(r.accountId) ?? r.accountId, ...cols.map((k) => r[k])]);
+        for (const r of rows)
+          await writer.write([
+            r.day,
+            names.get(r.accountId) ?? r.accountId,
+            ...cols.map((k) => r[k]),
+          ]);
         const t = sumRows(rows);
-        await writer.write(['TOTAL', q.accountId ? (names.get(q.accountId) ?? '') : 'Todas as instâncias', ...cols.map((k) => t[k])]);
+        await writer.write([
+          'TOTAL',
+          q.accountId ? (names.get(q.accountId) ?? '') : 'Todas as instâncias',
+          ...cols.map((k) => t[k]),
+        ]);
         await writer.end();
       } catch (err) {
         req.log.error({ err }, 'Falha na exportação do relatório');

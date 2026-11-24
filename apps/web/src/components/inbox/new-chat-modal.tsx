@@ -2,7 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { formatPhone, type ContactDTO, type ConversationDTO } from '@multizap/shared';
+import {
+  formatPhone,
+  normalizePhone,
+  type ContactDTO,
+  type ConversationDTO,
+} from '@multizap/shared';
 import { Alert, Badge, Modal, Segmented, Select, Spinner, Input, Button } from '@multizap/ui';
 import { api } from '@/lib/api';
 import { toQueryString } from '@/lib/contacts';
@@ -128,6 +133,10 @@ export function NewChatModal({
     },
   });
 
+  // Número digitado (como no WhatsApp Web): abre a conversa mesmo fora da agenda.
+  const typedDigits = search.replace(/\D/g, '');
+  const typed = typedDigits.length >= 8 ? normalizePhone(search) : null;
+  const typedPhone = typed && typed.ok ? typed.e164 : null;
   const rows = list.data?.rows ?? [];
   const pages = list.data ? Math.max(1, Math.ceil(list.data.total / 50)) : 1;
 
@@ -188,7 +197,7 @@ export function NewChatModal({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar nome ou telefone"
+            placeholder="Pesquisar nome ou digitar um telefone"
             className="h-9 pl-9"
             aria-label="Pesquisar contatos"
             autoFocus
@@ -196,6 +205,24 @@ export function NewChatModal({
         </div>
 
         {start.isError && <Alert tone="danger">{start.error.message}</Alert>}
+        {accountId && typedPhone && (
+          <button
+            type="button"
+            disabled={start.isPending}
+            onClick={() => start.mutate(typedPhone)}
+            className="flex w-full items-center gap-3 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2.5 text-left transition-colors hover:border-accent disabled:opacity-60"
+          >
+            <Avatar name="#" photoUrl={null} className="h-9 w-9" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-fg">
+                Conversar com {formatPhone(typedPhone)}
+              </span>
+              <span className="block text-xs text-muted">
+                Número digitado, mesmo que não esteja na agenda
+              </span>
+            </span>
+          </button>
+        )}
         {!accountId && (
           <p className="py-8 text-center text-sm text-subtle">Escolha uma instância.</p>
         )}
@@ -206,10 +233,12 @@ export function NewChatModal({
         )}
         {accountId && list.isError && <Alert tone="danger">{list.error.message}</Alert>}
         {accountId && list.data && rows.length === 0 && (
-          <p className="py-8 text-center text-sm text-subtle">
-            {source === 'device' && list.data.identities === 0
-              ? 'O WhatsApp ainda não enviou a agenda deste aparelho. Se a instância foi pareada antes, remova a conexão e pareie de novo.'
-              : 'Nenhum contato encontrado.'}
+          <p className="py-6 text-center text-sm text-subtle">
+            {typedPhone
+              ? 'Nenhum contato com esse número na lista.'
+              : source === 'device' && list.data.identities === 0
+                ? 'O WhatsApp ainda não enviou a agenda deste aparelho. Se a instância foi pareada antes, remova a conexão e pareie de novo.'
+                : 'Nenhum contato encontrado.'}
           </p>
         )}
         {rows.length > 0 && (

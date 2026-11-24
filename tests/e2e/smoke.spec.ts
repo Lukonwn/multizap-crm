@@ -108,6 +108,25 @@ test('Central de mensagens: "Nova conversa" abre a escolha de contatos da instâ
   await expect(page.getByRole('heading', { name: 'Nova conversa' })).toHaveCount(0);
 });
 
+test('Nova conversa: digitar um número abre a conversa, sem criar contato nem enviar nada', async () => {
+  // Instância de dispositivo conectado criada pela API (sem iniciar pareamento: não há gateway no teste).
+  const csrf = (await page.context().cookies()).find((c) => c.name === 'mz_csrf')!.value;
+  const created = await page.request.post('/api/accounts', {
+    headers: { 'x-csrf-token': csrf },
+    data: { name: 'Web E2E', connectionType: 'WHATSAPP_WEB' },
+  });
+  expect(created.status()).toBe(201);
+
+  await page.goto('/mensagens');
+  await page.getByRole('button', { name: 'Nova conversa' }).click();
+  await page.getByLabel('Instância da conversa').selectOption({ label: 'Web E2E (desconectada)' });
+  await page.getByLabel('Pesquisar contatos').fill('(11) 91234-5678');
+  await page.getByRole('button', { name: /Conversar com/ }).click();
+  await expect(page.getByRole('heading', { name: 'Nova conversa' })).toHaveCount(0);
+  await expect(page.getByText(/91234.?5678/).first()).toBeVisible();
+  await expect(page.getByText('A instância não está conectada.')).toBeVisible();
+});
+
 test('higienizador processa uma lista e gera arquivo para download', async () => {
   await page.goto('/ferramentas/sanitize');
   await page.locator('input[type=file]').setInputFiles(resolve(__dirname, 'fixtures/lista.csv'));

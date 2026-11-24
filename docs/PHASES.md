@@ -454,3 +454,9 @@
 **Pendências**
 
 - A causa real só aparece com um novo pareamento com esta versão. Se o celular nunca enviar a chave, avaliar alternativas com os eventos em mãos.
+
+## Nova conversa por número digitado ✅
+
+- No campo de pesquisa da **Nova conversa**, um telefone digitado (com DDD ou +país) vira a opção "Conversar com +55…", como no WhatsApp Web, mesmo fora da agenda. Só abre a conversa: nada é enviado, nenhum contato é criado e o sistema não consulta se o número tem WhatsApp.
+- Conclusão do teste real da agenda: o WhatsApp não entregou a agenda inteira ao aparelho conectado (ver ADR 0006, item 13).
+- 1 teste de ponta a ponta novo (13 no total).

@@ -24,6 +24,8 @@ No primeiro teste com um número real, a Central mostrou conversas como "Contato
 
 12. **Agenda do celular e a chave de sincronização:** os nomes da agenda chegam pela sincronização do "estado do aplicativo", que depende de uma chave enviada pelo celular logo após o pareamento. Se a chave não chega, a sincronização fica "parada esperando a chave". O gateway observa as mensagens da biblioteca (sem depender do nível de log da hospedagem), registra cada etapa em System Health → Eventos ("Agenda (instância): …") e, se a agenda ficar parada, pede nova sincronização com o recurso oficial da biblioteca, após 1,5, 6 e 20 minutos. Não envia mensagens de protocolo escritas à mão.
 
+13. **Resultado do teste real da agenda:** com a sincronização concluída sem erro (sem "falta de chave"), o WhatsApp entregou apenas as coleções "preferências" e "bloqueios", e nenhuma de "agenda e contatos". Os contatos recebidos (3 a 4) são só os das conversas existentes, sem nome salvo na agenda. Ou seja, **o WhatsApp não entregou a agenda inteira do celular a este aparelho conectado**; o sistema trata a agenda quando ela chega, mas não consegue forçá-la. Caminhos independentes: **digitar o número** na Nova conversa (como no WhatsApp Web) e **importar a agenda por arquivo** (Contatos → Importar lista).
+
 ## Limites conhecidos
 
 - O que o WhatsApp entrega depende dele: ao vincular, o aparelho envia o histórico recente e a agenda **uma vez**. Quem vinculou antes desta correção pode precisar **desconectar e parear de novo** para receber os nomes da agenda.

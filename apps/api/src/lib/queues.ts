@@ -2,8 +2,13 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import {
   CAMPAIGNS_QUEUE,
+  GATEWAY_QUEUE,
   IMPORTS_QUEUE,
+  MAINTENANCE_QUEUE,
+  QUEUE_LABEL,
   TOOLS_QUEUE,
+  type MaintenanceJob,
+  type QueueCounts,
   type CampaignJob,
   type ImportJob,
   type ToolJobData,
@@ -91,6 +96,63 @@ export class CampaignQueue {
 
   async close(): Promise<void> {
     await this.queue.close();
+    this.conn.disconnect();
+  }
+}
+
+/**
+ * Fila de manutenção (backups manuais) e leitura das contagens de todas as
+ * filas para o System Health.
+ */
+export class SystemQueues {
+  private readonly conn: Redis;
+  readonly maintenance: Queue<MaintenanceJob>;
+  private readonly inspect: Map<string, Queue>;
+
+  constructor(redisUrl: string, prefix = 'bull') {
+    this.conn = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.conn.on('error', () => undefined);
+    this.maintenance = new Queue<MaintenanceJob>(MAINTENANCE_QUEUE, {
+      connection: this.conn,
+      prefix,
+      defaultJobOptions: { attempts: 1, removeOnComplete: 100, removeOnFail: 200 },
+    });
+    this.inspect = new Map(
+      [IMPORTS_QUEUE, TOOLS_QUEUE, CAMPAIGNS_QUEUE, GATEWAY_QUEUE].map((name) => [
+        name,
+        new Queue(name, { connection: this.conn, prefix }),
+      ]),
+    );
+    this.inspect.set(MAINTENANCE_QUEUE, this.maintenance as unknown as Queue);
+  }
+
+  async addBackup(backupId: string): Promise<void> {
+    await this.maintenance.add(
+      'backup',
+      { type: 'backup', backupId },
+      { jobId: `backup-${backupId}` },
+    );
+  }
+
+  async counts(): Promise<QueueCounts[]> {
+    return Promise.all(
+      [...this.inspect].map(async ([name, q]) => {
+        const c = await q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed');
+        return {
+          name,
+          label: QUEUE_LABEL[name] ?? name,
+          waiting: c.waiting ?? 0,
+          active: c.active ?? 0,
+          delayed: c.delayed ?? 0,
+          failed: c.failed ?? 0,
+          completed: c.completed ?? 0,
+        };
+      }),
+    );
+  }
+
+  async close(): Promise<void> {
+    await Promise.all([...this.inspect.values()].map((q) => q.close()));
     this.conn.disconnect();
   }
 }

@@ -8,7 +8,7 @@ import {
 } from 'baileys';
 import type { PrismaClient } from '@multizap/database';
 import type { CredentialCipher } from '@multizap/shared/crypto';
-import type { AuthStoreLike } from '../session/types';
+import { CredentialsUnreadableError, type AuthStoreLike } from '../session/types';
 
 export const PROVIDER_ID = 'whatsapp-web';
 
@@ -19,15 +19,18 @@ export const PROVIDER_ID = 'whatsapp-web';
  * Substitui o useMultiFileAuthState do Baileys: nada é gravado no filesystem
  * do container, então reinícios e novos deploys não perdem a sessão.
  */
+export const credsAad = (accountId: string) => `account:${accountId}:creds`;
+export const keyAad = (accountId: string, type: string, id: string) =>
+  `account:${accountId}:key:${type}:${id}`;
+
 export class DbAuthStore implements AuthStoreLike {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly cipher: CredentialCipher,
   ) {}
 
-  private credsAad = (accountId: string) => `account:${accountId}:creds`;
-  private keyAad = (accountId: string, type: string, id: string) =>
-    `account:${accountId}:key:${type}:${id}`;
+  private credsAad = credsAad;
+  private keyAad = keyAad;
 
   private encrypt(value: unknown, aad: string): Uint8Array<ArrayBuffer> {
     // Cópia em um ArrayBuffer próprio (tipo exigido pelo Prisma para colunas Bytes).
@@ -45,9 +48,14 @@ export class DbAuthStore implements AuthStoreLike {
     accountId: string,
   ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
     const integration = await this.prisma.integration.findUnique({ where: { accountId } });
-    const creds: AuthenticationCreds = integration?.credentialsEnc
-      ? this.decrypt<AuthenticationCreds>(integration.credentialsEnc, this.credsAad(accountId))
-      : initAuthCreds();
+    let creds: AuthenticationCreds;
+    try {
+      creds = integration?.credentialsEnc
+        ? this.decrypt<AuthenticationCreds>(integration.credentialsEnc, this.credsAad(accountId))
+        : initAuthCreds();
+    } catch (err) {
+      throw new CredentialsUnreadableError((err as Error).message);
+    }
 
     const keys: AuthenticationState['keys'] = {
       get: async <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => {

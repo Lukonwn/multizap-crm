@@ -18,6 +18,7 @@ import type {
 } from './types';
 import type { LockManager } from './lock';
 import { SessionRepository } from './repository';
+import { CredentialsUnreadableError } from './types';
 
 type Mode = 'pairing' | 'restore';
 
@@ -397,12 +398,40 @@ export class SessionManager {
       });
     } catch (err) {
       this.log('Falha ao abrir conexão', { accountId, err: String(err) });
+      if (err instanceof CredentialsUnreadableError)
+        return this.onCredentialsUnreadable(accountId, err);
       await this.handleEvent(accountId, generation, {
         type: 'close',
         reason: 'unknown',
         message: String(err),
       });
     }
+  }
+
+  /**
+   * Credenciais salvas que não podem ser lidas (ex.: CREDENTIALS_MASTER_KEY trocada).
+   * Não é uma falha temporária: não tenta reconectar em loop e NÃO apaga nada.
+   * O administrador restaura a chave e reconecta, ou remove a conexão manualmente.
+   */
+  private async onCredentialsUnreadable(accountId: string, err: Error) {
+    this.sessions.delete(accountId);
+    await this.locks.release(accountId);
+    await this.repo.setLastError(accountId, err.message);
+    await this.repo.setStatus(accountId, 'ATTENTION', STATUS_REASON.credentialsUnreadable);
+    await this.repo.event(
+      accountId,
+      'credentials_unreadable',
+      'As credenciais salvas não puderam ser lidas. Reconexão automática suspensa; nada foi apagado.',
+    );
+    await this.repo.notify({
+      accountId,
+      severity: 'CRITICAL',
+      category: 'SECURITY',
+      title: 'Credenciais da instância ilegíveis',
+      message:
+        'A sessão salva não pôde ser descriptografada. Verifique se a CREDENTIALS_MASTER_KEY é a mesma usada no pareamento.',
+      dedupeKey: `account:${accountId}:credentials_unreadable`,
+    });
   }
 
   private current(accountId: string, generation: number): Session | null {

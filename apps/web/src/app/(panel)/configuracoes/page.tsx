@@ -1,6 +1,8 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { Monitor, ShieldCheck } from 'lucide-react';
+import { AuditCard } from '@/components/system/audit-card';
 import type { SessionInfo } from '@multizap/shared';
 import {
   Alert,
@@ -143,17 +145,16 @@ export default function SettingsPage() {
           <CardHeader>
             <div>
               <CardTitle>Operações e backups</CardTitle>
-              <CardDescription>Configurações que chegam nas próximas fases.</CardDescription>
+              <CardDescription>
+                A pausa global, o estado dos backups e o backup manual ficam no System Health.
+              </CardDescription>
             </div>
-            <Badge tone="warning" dot>
-              Fase 9
-            </Badge>
+            <Link href="/system-health" className="text-sm text-accent hover:underline">
+              Abrir System Health
+            </Link>
           </CardHeader>
-          <CardContent className="text-sm text-muted">
-            Pausa global de operações, política de retenção de backups e restauração ficarão
-            disponíveis aqui na Fase 9.
-          </CardContent>
         </Card>
+        <AuditCard />
       </div>
     </>
   );

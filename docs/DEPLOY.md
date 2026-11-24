@@ -58,6 +58,8 @@ Use referências de variável da Railway (`${{Serviço.VAR}}`) sempre que possí
 | `CREDENTIALS_KEY_VERSION` | `1`                                                                   |
 | `REPORTS_TZ`              | opcional, padrão `America/Sao_Paulo` (somente worker; o mesmo da API) |
 
+O worker também precisa das variáveis `STORAGE_*` e, para os backups, das variáveis da seção [Backups](#backups-multizap-worker).
+
 Gerar chaves:
 
 ```bash
@@ -85,6 +87,54 @@ Crie um **Railway Bucket** para os arquivos e configure **nos dois serviços**:
 O **multizap-gateway** também precisa das variáveis `STORAGE_*`, para enviar as imagens das campanhas.
 
 Em produção, a API e o worker **recusam iniciar** com armazenamento local, porque o disco do container é apagado a cada deploy. O `/health/ready` da API inclui a verificação do bucket.
+
+## Backups (multizap-worker)
+
+Os backups vão para um **segundo Railway Bucket**, separado do bucket de arquivos. Assim, um problema ou uma exclusão no bucket principal não leva os backups junto.
+
+1. Crie outro Bucket na Railway (ex.: `multizap-backups`).
+2. Configure no **multizap-worker**:
+
+| Variável                                                  | Valor                                                                                    |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `BACKUP_S3_ENDPOINT`                                      | endpoint do bucket de backup                                                             |
+| `BACKUP_S3_REGION`                                        | região (ou `auto`)                                                                       |
+| `BACKUP_S3_BUCKET`                                        | nome do bucket de backup (precisa ser diferente de `STORAGE_S3_BUCKET`)                  |
+| `BACKUP_S3_ACCESS_KEY_ID` / `BACKUP_S3_SECRET_ACCESS_KEY` | credenciais do bucket de backup                                                          |
+| `BACKUP_S3_FORCE_PATH_STYLE`                              | `true` se o endpoint exigir _path-style_                                                 |
+| `BACKUP_ENCRYPTION_KEY`                                   | 32 bytes em base64. **Guarde uma cópia fora da Railway**: sem ela, os backups não abrem. |
+| `BACKUP_HOUR`                                             | hora local do backup diário (padrão `3`, no fuso `REPORTS_TZ`)                           |
+| `BACKUP_RETENTION_DAYS`                                   | dias de retenção (padrão `14`; os 3 backups mais recentes são sempre mantidos)           |
+| `TOOL_RETENTION_DAYS` / `IMPORT_FILE_RETENTION_DAYS`      | opcional: retenção dos arquivos temporários (padrão `7` e `30` dias)                     |
+
+**O que entra no backup:** todas as tabelas do banco, num instante consistente (uma única transação), e os arquivos da biblioteca de criativos e das imagens recebidas. Tudo é criptografado (AES-256-GCM) antes de sair do worker. Os arquivos são copiados de forma incremental: cada arquivo vai para o bucket de backup uma única vez.
+
+**Acompanhamento:** System Health mostra o último backup, o próximo horário, o histórico e o botão "Fazer backup agora". Falhas geram notificação.
+
+### Restaurar um backup
+
+A restauração é manual, pela linha de comando do worker:
+
+1. **Pause as operações** no System Health. Se for substituir o banco em uso, pare também o **multizap-gateway**, para que nada escreva durante a restauração.
+2. O banco de destino precisa ter as migrations **da mesma versão** do MultiZap que gerou o backup. Em um banco novo, rode antes: `pnpm --filter @multizap/database db:deploy`.
+3. Abra um terminal no serviço multizap-worker (`railway ssh --service multizap-worker`) e liste os backups:
+
+```bash
+node apps/worker/dist/restore.js --list
+```
+
+4. Restaure o mais recente (ou informe o caminho do manifesto listado):
+
+```bash
+node apps/worker/dist/restore.js latest
+```
+
+- Em um banco que já tem dados, a restauração é recusada. Para substituir tudo pelo conteúdo do backup, use `--force`.
+- `--no-files` restaura só o banco.
+- A restauração do banco é feita numa única transação: ou entra por completo, ou nada muda.
+- Para restaurar em outro banco, defina `DATABASE_URL` só para o comando: `DATABASE_URL=postgresql://... node apps/worker/dist/restore.js latest`.
+
+5. Retome as operações e religue o gateway. As sessões do WhatsApp só voltam a funcionar se a `CREDENTIALS_MASTER_KEY` for a mesma da época do backup. Se não for, as instâncias aparecem como "credenciais ilegíveis" e precisam ser pareadas de novo.
 
 ## Rede
 

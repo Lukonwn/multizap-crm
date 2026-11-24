@@ -5,7 +5,7 @@ import { hashPassword } from '@multizap/shared/password';
 import { CSRF_COOKIE, SESSION_COOKIE } from '@multizap/shared';
 import { buildApp } from '../src/app';
 import { GatewayClient } from '../src/lib/gateway';
-import { CampaignQueue, ImportQueue, ToolQueue } from '../src/lib/queues';
+import { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from '../src/lib/queues';
 import { LocalStorage } from '@multizap/storage';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +24,7 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
   importQueue: ImportQueue;
   toolQueue: ToolQueue;
   campaignQueue: CampaignQueue;
+  systemQueues: SystemQueues;
 }> {
   const url = process.env.TEST_DATABASE_URL!;
   const config = loadConfig({
@@ -43,6 +44,7 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
   const importQueue = new ImportQueue(config.redisUrl!, 'mztest');
   const toolQueue = new ToolQueue(config.redisUrl!, 'mztest');
   const campaignQueue = new CampaignQueue(config.redisUrl!, 'mztest');
+  const systemQueues = new SystemQueues(config.redisUrl!, 'mztest');
   const app = await buildApp({
     config,
     prisma,
@@ -52,6 +54,7 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
     importQueue,
     toolQueue,
     campaignQueue,
+    systemQueues,
     logger: false,
   });
   app.addHook('onClose', async () => {
@@ -59,9 +62,20 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
     await importQueue.close();
     await toolQueue.close();
     await campaignQueue.close();
+    await systemQueues.close();
   });
   await app.ready();
-  return { app, prisma, redis, gateway, storage, importQueue, toolQueue, campaignQueue };
+  return {
+    app,
+    prisma,
+    redis,
+    gateway,
+    storage,
+    importQueue,
+    toolQueue,
+    campaignQueue,
+    systemQueues,
+  };
 }
 
 export async function resetDb(prisma: PrismaClient) {

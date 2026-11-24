@@ -68,3 +68,11 @@ export interface AuthStoreLike {
   /** Apaga credenciais e chaves de sinalização da instância. */
   clear(accountId: string): Promise<void>;
 }
+
+/** As credenciais existem, mas não podem ser descriptografadas (chave trocada ou dado corrompido). */
+export class CredentialsUnreadableError extends Error {
+  constructor(cause: string) {
+    super(`Credenciais ilegíveis: ${cause}`);
+    this.name = 'CredentialsUnreadableError';
+  }
+}

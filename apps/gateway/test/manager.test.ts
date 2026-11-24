@@ -1,3 +1,4 @@
+import { CredentialsUnreadableError } from '../src/session/types';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gatewayKeys, type PairingState } from '@multizap/shared';
 import { LockManager } from '../src/session/lock';
@@ -214,6 +215,33 @@ describe('persistência das conexões', () => {
     factory.last(id).emit({ type: 'open', jid: '5511987654321@s.whatsapp.net' });
     await vi.waitFor(async () => expect(await eventTypes(id)).toContain('connected'));
     expect(await status(id)).toBe('CONNECTED');
+  });
+
+  it('credenciais ilegíveis (chave trocada): suspende a reconexão, notifica e não apaga nada', async () => {
+    const id = await account({ paired: true, status: 'CONNECTED' });
+    const open = factory.open.bind(factory);
+    let attempts = 0;
+    factory.open = async () => {
+      attempts++;
+      throw new CredentialsUnreadableError('Unsupported state or unable to authenticate data');
+    };
+    const m = makeManager({ backoffMs: [20] });
+    await m.reconcile();
+    await vi.waitFor(async () => expect(await status(id)).toBe('ATTENTION'));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(attempts).toBe(1); // nenhuma nova tentativa automática
+    expect(store.cleared).not.toContain(id);
+    const acc = await prisma.account.findUniqueOrThrow({ where: { id } });
+    expect(acc.statusReason).toBe('credentials_unreadable');
+    expect(
+      await prisma.systemNotification.count({
+        where: { dedupeKey: `account:${id}:credentials_unreadable` },
+      }),
+    ).toBe(1);
+    expect(
+      (await prisma.integration.findUniqueOrThrow({ where: { accountId: id } })).credentialsEnc,
+    ).not.toBeNull();
+    factory.open = open;
   });
 
   it('falha temporária: reconecta com backoff sem apagar credenciais', async () => {

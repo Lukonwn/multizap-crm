@@ -1,9 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { refreshCampaignProgress, type Prisma } from '@multizap/database';
+import { refreshCampaignProgress, type Prisma, isOperationsPaused } from '@multizap/database';
 import { PROVIDER_CAPABILITIES } from '@multizap/integrations';
 import {
-  SETTING_KEYS,
   audiencePreviewSchema,
   buildCampaignMessage,
   campaignInputSchema,
@@ -601,10 +600,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         'A campanha não está ativa (pausada, agendada ou encerrada).',
       );
     }
-    const paused = await prisma.systemSetting.findUnique({
-      where: { key: SETTING_KEYS.operationsPaused },
-    });
-    if (paused?.value === true)
+    if (await isOperationsPaused(prisma))
       throw new AppError(409, 'OPERATIONS_PAUSED', 'As operações estão pausadas globalmente.');
     if (child.account.status !== 'CONNECTED') {
       throw new AppError(

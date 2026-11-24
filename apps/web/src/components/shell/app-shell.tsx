@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
+import { PauseBanner } from '@/components/system/pause-banner';
 
 const STORAGE_KEY = 'mz:sidebar-collapsed';
 
@@ -31,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar collapsed={collapsed} onToggle={toggle} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
+        <PauseBanner />
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-8 animate-fade-in">
           {children}
         </main>

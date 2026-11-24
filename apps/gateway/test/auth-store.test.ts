@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { proto } from 'baileys';
 import { DbAuthStore } from '../src/whatsapp/auth-store';
+import { CredentialsUnreadableError } from '../src/session/types';
 import { resetDb, testCipher, testPrisma } from './helpers';
 
 const prisma = testPrisma();
@@ -76,6 +77,17 @@ describe('DbAuthStore', () => {
       data: { accountId: other.id, provider: 'whatsapp-web', credentialsEnc: row.credentialsEnc },
     });
     await expect(store.load(other.id)).rejects.toThrow();
+  });
+
+  it('chave diferente: erro específico de credenciais ilegíveis (sem apagar nada)', async () => {
+    await (await new DbAuthStore(prisma, cipher).load(accountId)).saveCreds();
+    const err = await new DbAuthStore(prisma, testCipher())
+      .load(accountId)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CredentialsUnreadableError);
+    expect(
+      (await prisma.integration.findUniqueOrThrow({ where: { accountId } })).credentialsEnc,
+    ).not.toBeNull();
   });
 
   it('clear apaga credenciais e chaves', async () => {

@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
-import type { CampaignQueue, ImportQueue, ToolQueue } from './lib/queues';
+import type { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from './lib/queues';
 import { campaignRoutes } from './modules/campaigns/routes';
 import { inboxRoutes } from './modules/inbox/routes';
 import { reportRoutes } from './modules/reports/routes';
@@ -21,6 +21,7 @@ import { healthRoutes } from './modules/health/routes';
 import { accountRoutes } from './modules/accounts/routes';
 import { notificationRoutes } from './modules/notifications/routes';
 import { dashboardRoutes } from './modules/dashboard/routes';
+import { systemRoutes } from './modules/system/routes';
 import type { GatewayClient } from './lib/gateway';
 
 declare module 'fastify' {
@@ -33,6 +34,7 @@ declare module 'fastify' {
     importQueue: ImportQueue | null;
     toolQueue: ToolQueue | null;
     campaignQueue: CampaignQueue | null;
+    systemQueues: SystemQueues | null;
   }
 }
 
@@ -45,6 +47,7 @@ export interface BuildDeps {
   importQueue?: ImportQueue | null;
   toolQueue?: ToolQueue | null;
   campaignQueue?: CampaignQueue | null;
+  systemQueues?: SystemQueues | null;
   logger?: boolean;
 }
 
@@ -57,6 +60,7 @@ export async function buildApp({
   importQueue = null,
   toolQueue = null,
   campaignQueue = null,
+  systemQueues = null,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -87,6 +91,7 @@ export async function buildApp({
   app.decorate('importQueue', importQueue);
   app.decorate('toolQueue', toolQueue);
   app.decorate('campaignQueue', campaignQueue);
+  app.decorate('systemQueues', systemQueues);
 
   await app.register(sensible);
   await app.register(multipart, {
@@ -142,6 +147,7 @@ export async function buildApp({
   await app.register(campaignRoutes);
   await app.register(inboxRoutes);
   await app.register(reportRoutes);
+  await app.register(systemRoutes);
 
   return app;
 }

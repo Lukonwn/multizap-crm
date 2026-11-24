@@ -39,9 +39,12 @@ export const STATUS_REASON = {
   pairingExpired: 'pairing_expired',
   pairingCancelled: 'pairing_cancelled',
   removedByAdmin: 'removed_by_admin',
+  credentialsUnreadable: 'credentials_unreadable',
 } as const;
 
 export const STATUS_REASON_LABEL: Record<string, string> = {
+  credentials_unreadable:
+    'As credenciais salvas não puderam ser lidas (a CREDENTIALS_MASTER_KEY mudou?). Nada foi apagado: restaure a chave anterior e clique em Reconectar, ou remova a conexão e pareie novamente.',
   connection_replaced: 'A sessão foi aberta em outro local. Reconecte manualmente se desejar.',
   logged_out:
     'O dispositivo foi desconectado pelo WhatsApp ou pelo celular. É necessário parear novamente.',

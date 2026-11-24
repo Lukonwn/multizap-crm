@@ -16,8 +16,8 @@ CRM privado para gerenciar até **10 contas WhatsApp** em um único painel admin
 | 6    | Campanhas assistidas                                  | ✅ Concluída |
 | 7    | Central de mensagens                                  | ✅ Concluída |
 | 8    | Relatórios e analytics                                | ✅ Concluída |
-| 9    | System Health e segurança                             | ⏳ Próxima   |
-| 10   | Testes, documentação e produção                       | —            |
+| 9    | System Health e segurança                             | ✅ Concluída |
+| 10   | Testes, documentação e produção                       | ⏳ Próxima   |
 
 Detalhes e registro de cada fase: [`docs/PHASES.md`](docs/PHASES.md).
 

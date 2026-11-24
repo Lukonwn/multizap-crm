@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { Worker } from 'bullmq';
 import pino from 'pino';
-import { getPrisma } from '@multizap/database';
+import { getPrisma, notify, recordSystemEvent, resolveNotifications } from '@multizap/database';
 import { GATEWAY_QUEUE, HEARTBEAT_KEYS, type GatewayCommand } from '@multizap/shared';
 import { cipherFromEnv } from '@multizap/shared/crypto';
 import { onShutdown, startHealthServer, startHeartbeat } from '@multizap/shared/runtime';
@@ -82,9 +82,38 @@ const worker = new Worker<GatewayCommand>(
   },
   { connection: redis.duplicate(), concurrency: 5, prefix: process.env.BULLMQ_PREFIX || 'bull' },
 );
-worker.on('failed', (job, err) =>
-  logger.error({ err: err.message, type: job?.data.type }, 'Comando falhou'),
-);
+worker.on('failed', (job, err) => {
+  logger.error({ err: err.message, type: job?.data.type }, 'Comando falhou');
+  void recordSystemEvent(prisma, {
+    source: 'gateway',
+    level: 'error',
+    type: 'command_failed',
+    message: `Comando "${job?.data.type ?? '?'}" falhou: ${err.message}`,
+  });
+});
+
+// O worker vigia o gateway; o gateway vigia o worker (cada um notifica a falha do outro).
+const startedAt = Date.now();
+let workerMissingSince: number | null = null;
+const watchTimer = setInterval(async () => {
+  const alive = await redis.get(HEARTBEAT_KEYS.worker).catch(() => null);
+  if (alive) {
+    workerMissingSince = null;
+    await resolveNotifications(prisma, 'worker:down');
+    return;
+  }
+  workerMissingSince ??= Math.max(Date.now(), startedAt);
+  if (Date.now() - workerMissingSince < 2 * 60_000) return;
+  await notify(prisma, {
+    severity: 'ERROR',
+    category: 'PROCESSING',
+    title: 'Worker sem resposta',
+    message:
+      'O serviço de processamento não envia sinal há mais de 2 minutos. Importações, ferramentas, agendamentos e backups estão parados.',
+    dedupeKey: 'worker:down',
+  });
+}, 60_000);
+watchTimer.unref();
 
 const stopHeartbeat = startHeartbeat(redis, HEARTBEAT_KEYS.gateway, () => ({
   sessions: manager.activeCount,
@@ -96,6 +125,7 @@ log('Gateway pronto', { owner: locks.ownerId });
 
 onShutdown(async () => {
   clearInterval(reconcileTimer);
+  clearInterval(watchTimer);
   stopHeartbeat();
   await worker.close();
   // Encerra sockets SEM logout: as sessões são restauradas na próxima inicialização.

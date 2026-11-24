@@ -219,3 +219,20 @@ API GET /reports/export?format=csv|xlsx ──▶ uma linha por dia e instância
 - **Consolidação:** o worker grava em `daily_metrics` os últimos 7 dias fechados a cada hora (para capturar confirmações tardias) e, na inicialização, preenche lacunas dos últimos 400 dias. Se faltar qualquer dia consolidado num intervalo, a API calcula o intervalo inteiro ao vivo, então o resultado é sempre correto.
 - **Comparação:** o período anterior tem a mesma duração e termina no dia anterior ao início.
 - **Indicadores de base** (contatos, autorizados, descadastrados) são a situação atual, não do período.
+
+## System Health, backups e segurança (Fase 9)
+
+```
+worker ── a cada minuto: Monitor (armazenamento, bucket de backup, gateway, backup atrasado) ──▶ system_notifications
+       ── agenda diária (BACKUP_HOUR) ou fila "maintenance" (botão no painel) ──▶ BackupService ──▶ bucket de backup
+       ── a cada 6 h: CleanupService (temporários vencidos)
+gateway ── a cada minuto: verifica o heartbeat do worker
+API GET /system/status ── banco, Redis, bucket, heartbeats, filas BullMQ, conexões, erros 24 h, notificações, backups, limpeza
+```
+
+- **Notificações** (`notify`/`resolveNotifications` em `@multizap/database`): falha de conexão, de processamento (importação, ferramenta, worker parado), de armazenamento, de integração (gateway parado, credenciais ilegíveis) e de backup. A `dedupe_key` evita repetição e permite a resolução automática.
+- **Eventos do sistema** (`system_events`): falhas de jobs, comandos do gateway, backups, limpeza e pausa/retomada, mantidos por 30 dias.
+- **Pausa global:** suspende envios de campanha (`/next` e o sender do gateway), respostas pela Central e o início de agendamentos. Uma faixa avisa em todas as telas.
+- **Backups:** ver [ADR 0005](adr/0005-backups-e-monitoramento.md) e [DEPLOY](DEPLOY.md#backups-multizap-worker).
+- **Limpeza:** resultados de ferramentas (7 dias), uploads sem uso (24 h), arquivos de importações encerradas (30 dias), sessões expiradas, eventos (30 dias) e notificações resolvidas (90 dias). Nunca remove contatos, conversas, campanhas, criativos, auditoria ou credenciais.
+- **Auditoria:** consulta somente leitura em Configurações, com filtro por tipo de ação.

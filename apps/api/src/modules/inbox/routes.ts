@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Prisma } from '@multizap/database';
+import { isOperationsPaused } from '@multizap/database';
 import {
   CONVERSATION_FILTERS,
   MAX_MESSAGE_LENGTH,
-  SETTING_KEYS,
   type ConversationDTO,
   type MessageDTO,
   type ReplyPermission,
@@ -64,10 +64,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     if (c.account.disabledAt) return { allowed: false, reason: 'A instância está desativada.' };
     if (c.account.status !== 'CONNECTED')
       return { allowed: false, reason: 'A instância não está conectada.' };
-    const paused = await prisma.systemSetting.findUnique({
-      where: { key: SETTING_KEYS.operationsPaused },
-    });
-    if (paused?.value === true)
+    if (await isOperationsPaused(prisma))
       return { allowed: false, reason: 'As operações estão pausadas globalmente.' };
     if (c.contact?.optedOutAt) {
       // Descadastrado só volta a receber resposta se escrever novamente depois do pedido.

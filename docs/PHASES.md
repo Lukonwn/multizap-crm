@@ -302,3 +302,59 @@
 
 - Entregues e lidas são contadas sobre as mensagens enviadas em cada dia (coorte). Assim, as taxas nunca passam de 100%, e um dia passado pode subir quando chegam confirmações tardias.
 - "Contatos", "autorizados" e "descadastrados" do topo mostram a situação atual. O período mostra os novos cadastros e os descadastros.
+
+## Fase 9: System Health e segurança ✅
+
+**Entregue**
+
+- **System Health** com dados reais:
+  - API, PostgreSQL, Redis, armazenamento, worker e gateway;
+  - filas BullMQ (aguardando, em execução, agendados, falhas);
+  - conexões por situação e instâncias com problema;
+  - erros das últimas 24 horas;
+  - notificações abertas, com opção de resolver;
+  - backups e limpeza automática;
+  - eventos do sistema com filtro.
+- **Pausa global:** suspende envios de campanha, respostas pela Central e o início de agendamentos. Pede confirmação e aceita um motivo. Uma faixa avisa em todas as telas. Pausa e retomada ficam na auditoria.
+- **Notificações automáticas, sem duplicar e resolvidas sozinhas quando o problema some:**
+  - armazenamento indisponível;
+  - gateway parado (vigiado pelo worker) e worker parado (vigiado pelo gateway);
+  - bucket de backup inacessível, falha de backup e backup atrasado;
+  - credenciais ilegíveis;
+  - configuração de backup inválida ou ausente em produção.
+- **Backups:**
+  - diários (horário configurável) e manuais, em um bucket separado;
+  - criptografados com AES-256-GCM;
+  - banco inteiro em snapshot consistente;
+  - arquivos de criativos e mídias em espelho incremental;
+  - retenção configurável, mantendo sempre os 3 mais recentes.
+- **Restauração** pela linha de comando (`node apps/worker/dist/restore.js`). Confere a chave e as migrations, recusa um banco com dados (a não ser com `--force`) e roda em uma única transação.
+- **Limpeza automática** de resultados de ferramentas, uploads sem uso, arquivos de importações encerradas, sessões expiradas, eventos e notificações antigas.
+- **Segurança:**
+  - registro de auditoria consultável em Configurações;
+  - credenciais ilegíveis (chave trocada) suspendem a reconexão sem apagar nada;
+  - recriptografia em lote para a rotação da chave (`node apps/gateway/dist/reencrypt-cli.js`).
+
+**Verificação**
+
+- 235 testes, com 31 novos:
+  - backup, perda total de banco e arquivos, e restauração idêntica, comparando todas as linhas de todas as tabelas (inclui bytea, jsonb, arrays, acentos, tabulações e barras);
+  - recusa de chave diferente, de migrations divergentes e de banco com dados;
+  - arquivo adulterado;
+  - retenção e limpeza do espelho;
+  - agenda no fuso;
+  - limpeza;
+  - monitoramento;
+  - pausa;
+  - rotação de chave;
+  - credenciais ilegíveis.
+- Navegador com os builds de produção:
+  - backup automático e manual concluídos;
+  - pausa com motivo, faixa em outra tela, retomada;
+  - auditoria filtrada.
+- Restauração real com o comando compilado em um banco novo: contagens iguais e 42 arquivos restaurados.
+
+**Pendências conhecidas**
+
+- Bucket S3 real não testado aqui; os testes usam o driver local. Validar no deploy com "Fazer backup agora" e `restore.js --list`.
+- O backup do banco é lógico (`COPY`), restaurável apenas na mesma versão das migrations (ver ADR 0005).

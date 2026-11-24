@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@multizap/database';
+import { isOperationsPaused } from '@multizap/database';
 import { refreshCampaignProgress } from '@multizap/database';
-import { SETTING_KEYS, buildCampaignMessage, e164Digits } from '@multizap/shared';
+import { buildCampaignMessage, e164Digits } from '@multizap/shared';
 import type { StorageDriver } from '@multizap/storage';
 import { streamToBuffer } from '@multizap/storage';
 import { NotConnectedError, type SessionManager } from '../session/manager';
@@ -51,10 +52,7 @@ export class CampaignSender {
       await unconfirm('Campanha pausada ou encerrada antes do envio.');
       return;
     }
-    const paused = await this.prisma.systemSetting.findUnique({
-      where: { key: SETTING_KEYS.operationsPaused },
-    });
-    if (paused?.value === true) {
+    if (await isOperationsPaused(this.prisma)) {
       await unconfirm('Operações pausadas globalmente.');
       return;
     }

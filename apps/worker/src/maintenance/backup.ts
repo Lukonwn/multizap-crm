@@ -332,6 +332,7 @@ export class BackupService {
       if (missing.length) throw new Error(`Tabelas ausentes no banco: ${missing.join(', ')}.`);
 
       await client.query('BEGIN');
+      await client.query('SET CONSTRAINTS ALL DEFERRED');
       if (opts.force) {
         await client.query(`TRUNCATE ${m.tables.map((t) => ident(t.name)).join(', ')} CASCADE`);
       } else {
@@ -384,7 +385,11 @@ export class BackupService {
     return result;
   }
 
-  /** Ordem que respeita as chaves estrangeiras (tabelas referenciadas primeiro). */
+  /**
+   * Ordem que respeita as chaves estrangeiras (tabelas referenciadas primeiro).
+   * Chaves adiáveis (DEFERRABLE) são conferidas no COMMIT e não entram na ordem; é assim que
+   * referências cruzadas (ex.: agente ↔ versão publicada) são restauradas.
+   */
   private async restoreOrder(client: pg.Client, tables: string[]): Promise<string[]> {
     const edges = (
       await client.query<{ child: string; parent: string }>(`
@@ -392,7 +397,8 @@ export class BackupService {
         FROM pg_constraint c
         JOIN pg_class ch ON ch.oid = c.conrelid
         JOIN pg_class pa ON pa.oid = c.confrelid
-        WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace`)
+        WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+          AND NOT c.condeferrable`)
     ).rows.filter((e) => e.child !== e.parent);
     const set = new Set(tables);
     const deps = new Map(tables.map((t) => [t, new Set<string>()]));

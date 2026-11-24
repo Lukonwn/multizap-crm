@@ -53,6 +53,9 @@ importers:
       '@fastify/sensible':
         specifier: ^6.0.2
         version: 6.0.8
+      '@multizap/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@multizap/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -282,6 +285,8 @@ importers:
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.33)(tsx@4.23.15)(typescript@5.9.3)
+
+  packages/ai: {}
 
   packages/database:
     dependencies:

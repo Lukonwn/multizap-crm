@@ -244,3 +244,13 @@ O WhatsApp endereça muitas conversas por LID. O gateway guarda em `wa_identitie
 ### Nova conversa (Central de mensagens)
 
 O botão **Nova conversa** abre a lista de contatos de uma instância (aba "Celular": a agenda que o WhatsApp entregou ao aparelho; aba "Contatos (CRM)") e, ao escolher um, abre ou cria a conversa individual (`POST /accounts/:id/conversations/start`). Não envia nada, não cria contato do CRM e não altera consentimento; cada mensagem é escrita e enviada pelo administrador, uma a uma, pelo mesmo caminho das respostas. Valem as mesmas regras: instância conectada, sem pausa geral e, para descadastrados (no CRM ou na lista de descadastros da instância), só com nova mensagem do contato. Conversas ainda sem mensagens não aparecem na lista.
+
+## MultiZap AI
+
+Agentes de IA para atendimento, num módulo próprio (menu "MultiZap AI"), sem alterar o restante do painel. Decisões e riscos em [ADR 0007](adr/0007-multizap-ai.md).
+
+- **Pacote `@multizap/ai`:** cliente da OpenRouter (`/chat/completions` com uso e custo, `/models`, `/key`; erros traduzidos e chave mascarada) e montagem do prompt (regras fixas + persona + instruções do agente + memória/conhecimento quando houver).
+- **API (`/ai/*`):** configuração da chave (criptografada), lista de modelos (cache de 1 h no Redis), personas (templates, duplicar, histórico), agentes (modelo, parâmetros, modo, instâncias, versões publicadas e restauração) e laboratório. Ações administrativas vão para a auditoria.
+- **Laboratório:** conversa simulada com o rascunho ou com a versão publicada; mostra modelo, tokens, custo, tempo e as instruções enviadas. Não passa pelo gateway.
+- **Tabelas:** `ai_credentials`, `ai_personas`, `ai_persona_revisions`, `ai_agents`, `ai_agent_versions`, `ai_agent_accounts`, `ai_test_sessions`, `ai_test_messages`, `ai_token_usage`, `ai_agent_events`.
+- **Próximas entregas:** atendimento real pelo worker (revisão humana/automático, assumir conversa, memória por contato, consumo real), base de conhecimento, entregáveis e métricas.

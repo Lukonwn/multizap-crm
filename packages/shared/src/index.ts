@@ -16,3 +16,4 @@ export * from './campaigns';
 export * from './inbox';
 export * from './reports';
 export * from './system';
+export * from './ai';

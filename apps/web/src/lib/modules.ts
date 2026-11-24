@@ -1,6 +1,7 @@
 import {
   Activity,
   BarChart3,
+  Bot,
   Images,
   LayoutDashboard,
   Megaphone,
@@ -124,6 +125,15 @@ export const MODULES: ModuleDef[] = [
       'Associação a campanhas',
       'Histórico de utilização',
     ],
+  },
+  {
+    key: 'ai',
+    href: '/ai',
+    label: 'MultiZap AI',
+    icon: Bot,
+    phase: 10,
+    description: 'Agentes de IA para atendimento pelo WhatsApp.',
+    upcoming: [],
   },
   {
     key: 'reports',

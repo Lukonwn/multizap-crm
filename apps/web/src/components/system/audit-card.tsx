@@ -32,6 +32,7 @@ const GROUPS = [
   ['tool.', 'Ferramentas'],
   ['operations.', 'Pausa global'],
   ['backup.', 'Backups'],
+  ['ai.', 'MultiZap AI'],
 ] as const;
 
 /** Detalhes resumidos (sem valores sensíveis, que nunca são gravados na auditoria). */

@@ -4,6 +4,8 @@ import { createPrisma, type PrismaClient } from '@multizap/database';
 import { hashPassword } from '@multizap/shared/password';
 import { CSRF_COOKIE, SESSION_COOKIE } from '@multizap/shared';
 import { buildApp } from '../src/app';
+import { CredentialCipher } from '@multizap/shared/crypto';
+import { randomBytes } from 'node:crypto';
 import { GatewayClient } from '../src/lib/gateway';
 import { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from '../src/lib/queues';
 import { LocalStorage } from '@multizap/storage';
@@ -15,7 +17,10 @@ import { loadConfig } from '../src/config';
 export const WEB_ORIGIN = 'http://localhost:3000';
 export const ADMIN = { email: 'admin@multizap.local', password: 'Senha-Inicial-123' };
 
-export async function setupTestApp(env: Record<string, string> = {}): Promise<{
+export async function setupTestApp(
+  env: Record<string, string> = {},
+  extra: { aiFetch?: typeof fetch } = {},
+): Promise<{
   app: FastifyInstance;
   prisma: PrismaClient;
   redis: Redis;
@@ -55,6 +60,8 @@ export async function setupTestApp(env: Record<string, string> = {}): Promise<{
     toolQueue,
     campaignQueue,
     systemQueues,
+    cipher: new CredentialCipher(new Map([[1, randomBytes(32)]]), 1),
+    ...(extra.aiFetch && { aiFetch: extra.aiFetch }),
     logger: false,
   });
   app.addHook('onClose', async () => {

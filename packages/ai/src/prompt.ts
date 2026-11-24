@@ -1,0 +1,124 @@
+import type { ChatMessage } from './openrouter';
+
+/** Campos da persona usados no prompt (mesmos nomes do banco). */
+export interface PersonaSpec {
+  name: string;
+  age?: number | null;
+  identity?: string | null;
+  biography?: string | null;
+  backstory?: string | null;
+  personality?: string | null;
+  traits?: string | null;
+  toneOfVoice?: string | null;
+  communicationStyle?: string | null;
+  formality?: string | null;
+  emojiUsage?: string | null;
+  responseLength?: string | null;
+  conversationStart?: string | null;
+  expressions?: string[] | null;
+  instructions?: string | null;
+  rules?: string | null;
+  allowedTopics?: string | null;
+  restrictedTopics?: string | null;
+  openingMessages?: string[] | null;
+}
+
+export interface AgentSpec {
+  name: string;
+  instructions?: string | null;
+}
+
+export interface PromptContext {
+  /** Trechos da base de conhecimento relevantes para a pergunta (Entrega 3). */
+  knowledge?: { title: string; text: string }[];
+  /** Resumo do que já se sabe sobre o contato (Entrega 2). */
+  memory?: string | null;
+  /** Nome do contato, quando conhecido. */
+  contactName?: string | null;
+}
+
+/** Regras que valem para todo agente e não podem ser desligadas pela persona. */
+export const FIXED_RULES = [
+  'Se perguntarem diretamente se você é uma pessoa, um robô ou uma inteligência artificial, não afirme ser humano: diga com naturalidade que é um assistente virtual.',
+  'Não invente informações (preços, prazos, estoque, endereços, políticas). Se não tiver a informação, diga que vai verificar ou que um atendente pode ajudar.',
+  'Nunca diga que uma ação foi concluída (pagamento, cadastro, envio, agendamento) sem confirmação explícita nas informações que você recebeu.',
+  'Nunca peça senhas, códigos de verificação ou dados completos de cartão.',
+  'Se o contato pedir para falar com uma pessoa, diga que vai chamar um atendente.',
+  'Responda em português do Brasil, a menos que o contato escreva em outro idioma.',
+];
+
+const FORMALITY: Record<string, string> = {
+  formal:
+    'Use linguagem formal e respeitosa (trate por "senhor" ou "senhora" quando fizer sentido).',
+  neutral: 'Use linguagem cordial e natural, nem formal demais nem informal demais.',
+  informal: 'Use linguagem informal e próxima, como numa conversa entre conhecidos.',
+};
+const EMOJI: Record<string, string> = {
+  none: 'Não use emojis.',
+  low: 'Use emojis raramente (no máximo um, quando fizer sentido).',
+  medium: 'Use emojis com moderação.',
+  high: 'Pode usar emojis com frequência.',
+};
+const LENGTH: Record<string, string> = {
+  short: 'Responda em mensagens curtas (1 a 3 frases), como numa conversa de WhatsApp.',
+  medium: 'Responda de forma objetiva, em até um parágrafo.',
+  long: 'Pode dar respostas mais completas quando o assunto pedir, sem enrolar.',
+};
+
+const line = (label: string, v: string | null | undefined) =>
+  v?.trim() ? `${label}: ${v.trim()}` : null;
+
+/** Monta o prompt de sistema a partir da persona, do agente e do contexto. */
+export function buildSystemPrompt(
+  persona: PersonaSpec,
+  agent: AgentSpec,
+  ctx: PromptContext = {},
+): string {
+  const who = `Você é ${persona.name}${persona.age ? `, ${persona.age} anos` : ''}.`;
+  const sections: (string | null)[] = [
+    [who, persona.identity?.trim()].filter(Boolean).join(' '),
+    line('Biografia', persona.biography),
+    line('História e contexto', persona.backstory),
+    line('Personalidade', persona.personality),
+    line('Traços de comportamento', persona.traits),
+    line('Tom de voz', persona.toneOfVoice),
+    line('Estilo de comunicação', persona.communicationStyle),
+    FORMALITY[persona.formality ?? 'neutral'] ?? null,
+    EMOJI[persona.emojiUsage ?? 'low'] ?? null,
+    LENGTH[persona.responseLength ?? 'short'] ?? null,
+    line('Como iniciar conversas', persona.conversationStart),
+    persona.expressions?.length
+      ? `Expressões características: ${persona.expressions.join('; ')}`
+      : null,
+    line('Assuntos que você pode tratar', persona.allowedTopics),
+    line('Assuntos que você NÃO deve tratar (recuse com educação)', persona.restrictedTopics),
+    line('Regras de comportamento', persona.rules),
+    line('Instruções da persona', persona.instructions),
+    line('Instruções deste atendimento', agent.instructions),
+  ];
+  if (ctx.contactName) sections.push(`Nome do contato: ${ctx.contactName}.`);
+  if (ctx.memory?.trim())
+    sections.push(`O que você já sabe sobre este contato:\n${ctx.memory.trim()}`);
+  if (ctx.knowledge?.length) {
+    sections.push(
+      'Informações da empresa (use como fonte principal; se a resposta não estiver aqui, não invente):\n' +
+        ctx.knowledge.map((k, i) => `[${i + 1}] ${k.title}\n${k.text}`).join('\n\n'),
+    );
+  }
+  sections.push(`Regras que sempre valem:\n${FIXED_RULES.map((r) => `- ${r}`).join('\n')}`);
+  return sections.filter((s): s is string => !!s).join('\n\n');
+}
+
+/** Mensagens para o modelo: prompt de sistema + últimas mensagens da conversa. */
+export function buildMessages(
+  persona: PersonaSpec,
+  agent: AgentSpec,
+  history: { role: 'user' | 'assistant'; content: string }[],
+  ctx: PromptContext = {},
+  maxHistory = 20,
+): ChatMessage[] {
+  return [
+    { role: 'system', content: buildSystemPrompt(persona, agent, ctx) },
+    ...history.slice(-maxHistory).map((m) => ({ role: m.role, content: m.content })),
+  ];
+}

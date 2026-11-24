@@ -18,6 +18,7 @@
     "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^10.2.1",
     "@fastify/sensible": "^6.0.2",
+    "@multizap/ai": "workspace:*",
     "@multizap/database": "workspace:*",
     "@multizap/files": "workspace:*",
     "@multizap/integrations": "workspace:*",

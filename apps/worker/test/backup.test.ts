@@ -104,6 +104,19 @@ async function seed() {
       folderId: folder.id,
     },
   });
+  // MultiZap AI: agente e versão publicada se referenciam (chave adiável na restauração).
+  const persona = await prisma.aiPersona.create({ data: { name: 'Ana' } });
+  const agent = await prisma.aiAgent.create({
+    data: { name: 'Atendente', personaId: persona.id, model: 'openai/gpt-4o-mini' },
+  });
+  const version = await prisma.aiAgentVersion.create({
+    data: { agentId: agent.id, number: 1, snapshot: { name: 'Atendente' } },
+  });
+  await prisma.aiAgent.update({
+    where: { id: agent.id },
+    data: { publishedVersionId: version.id },
+  });
+  await prisma.aiAgentAccount.create({ data: { agentId: agent.id, accountId: a.id } });
   await main.put('assets/banner.png', Buffer.from([1, 2, 3]));
   await main.put('media/inbox/foto.jpg', Buffer.from('jpeg'));
   await main.put('tools/uploads/temp.csv', Buffer.from('nao vai para o backup'));

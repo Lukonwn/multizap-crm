@@ -460,3 +460,14 @@
 - No campo de pesquisa da **Nova conversa**, um telefone digitado (com DDD ou +país) vira a opção "Conversar com +55…", como no WhatsApp Web, mesmo fora da agenda. Só abre a conversa: nada é enviado, nenhum contato é criado e o sistema não consulta se o número tem WhatsApp.
 - Conclusão do teste real da agenda: o WhatsApp não entregou a agenda inteira ao aparelho conectado (ver ADR 0006, item 13).
 - 1 teste de ponta a ponta novo (13 no total).
+
+## MultiZap AI: Entrega 1 (fundação e laboratório) ✅
+
+- Item **MultiZap AI** no menu, com Agentes, Personas, Laboratório e Configurações. Nenhuma tela existente mudou.
+- Chave da OpenRouter salva criptografada no servidor, teste de conexão e pesquisa de modelos com preço por 1 milhão de tokens.
+- Personas: criar, editar, duplicar, salvar como template, criar a partir de template, histórico de alterações e exclusão com confirmação (bloqueada se estiver em uso).
+- Agentes: persona, modelo, temperatura, limite de tokens, instruções, memória, modo (revisão humana por padrão), instâncias (um agente ativo por instância), publicação de versões e restauração.
+- Laboratório: conversa simulada com o rascunho ou a versão publicada, com tokens, custo, tempo e prompt; nada é enviado.
+- Backup e restauração cobrem as tabelas novas (chave adiável entre agente e versão publicada).
+- Testes: 10 do pacote `@multizap/ai`, 13 de API e 1 de ponta a ponta novos (14 no total).
+- A ativação no WhatsApp fica desabilitada e identificada até a Entrega 2.

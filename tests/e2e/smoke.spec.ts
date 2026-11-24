@@ -29,6 +29,7 @@ const MODULES = [
   ['/criativos', 'Biblioteca de criativos'],
   ['/campanhas', 'Campanhas'],
   ['/relatorios', 'Relatórios'],
+  ['/ai/agentes', 'MultiZap AI'],
   ['/system-health', 'System Health'],
   ['/configuracoes', 'Configurações'],
 ] as const;
@@ -125,6 +126,41 @@ test('Nova conversa: digitar um número abre a conversa, sem criar contato nem e
   await expect(page.getByRole('heading', { name: 'Nova conversa' })).toHaveCount(0);
   await expect(page.getByText(/91234.?5678/).first()).toBeVisible();
   await expect(page.getByText('A instância não está conectada.')).toBeVisible();
+});
+
+test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada', async () => {
+  await page.goto('/ai/configuracoes');
+  await expect(page.getByText('Nenhuma chave configurada')).toBeVisible();
+
+  await page.goto('/ai/personas');
+  await page.getByRole('link', { name: 'Nova persona' }).click();
+  await page.getByLabel('Nome', { exact: true }).fill('Ana E2E');
+  await page.getByLabel('Tom de voz').fill('Acolhedor e direto');
+  await page.getByRole('button', { name: 'Criar' }).click();
+  await expect(page.getByText('Persona salva.')).toBeVisible();
+  await page.getByLabel('Tom de voz').fill('Acolhedor, direto e simpático');
+  await page.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect(page.getByText(/Alterado: .*tom de voz/i)).toBeVisible();
+
+  await page.goto('/ai/agentes');
+  await page.getByRole('button', { name: 'Novo agente' }).click();
+  await page.getByLabel('Nome do agente').fill('Atendente E2E');
+  await page.getByLabel('Persona').selectOption({ label: 'Ana E2E' });
+  await page.getByLabel('Modelo').fill('openai/gpt-4o-mini');
+  await page.getByRole('button', { name: 'Criar agente' }).click();
+  await expect(page.getByRole('heading', { name: 'Atendente E2E' })).toBeVisible();
+  await expect(page.getByLabel('Modo de resposta')).toHaveValue('REVIEW');
+  await expect(page.getByRole('button', { name: /Ativar/ })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Publicar versão' }).click();
+  await expect(page.getByText('Publicada: v1')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Testar no laboratório' }).click();
+  await expect(page.getByText('Simulação', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Nova conversa de teste' }).click();
+  await page.getByLabel('Mensagem de teste').fill('Olá, tudo bem?');
+  await page.getByRole('button', { name: 'Enviar mensagem de teste' }).click();
+  await expect(page.getByText('Configure a chave da OpenRouter')).toBeVisible();
 });
 
 test('higienizador processa uma lista e gera arquivo para download', async () => {

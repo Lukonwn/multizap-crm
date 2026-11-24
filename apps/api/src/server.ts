@@ -5,6 +5,7 @@ import { createRedis } from './lib/redis';
 import { GatewayClient } from './lib/gateway';
 import { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from './lib/queues';
 import { storageFromEnv } from '@multizap/storage';
+import { cipherFromEnv } from '@multizap/shared/crypto';
 
 const config = loadConfig();
 const prisma = getPrisma();
@@ -23,6 +24,8 @@ const campaignQueue = config.redisUrl
   ? new CampaignQueue(config.redisUrl, config.queuePrefix)
   : null;
 const systemQueues = config.redisUrl ? new SystemQueues(config.redisUrl, config.queuePrefix) : null;
+// Cifra das credenciais (chave da OpenRouter). Sem CREDENTIALS_MASTER_KEY, a IA não guarda chave.
+const cipher = process.env.CREDENTIALS_MASTER_KEY ? cipherFromEnv() : null;
 const app = await buildApp({
   config,
   prisma,
@@ -33,6 +36,7 @@ const app = await buildApp({
   toolQueue,
   campaignQueue,
   systemQueues,
+  cipher,
 });
 
 const bootstrap = await ensureBootstrapAdmin(prisma, config.bootstrapAdmin);

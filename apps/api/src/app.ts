@@ -24,6 +24,8 @@ import { dashboardRoutes } from './modules/dashboard/routes';
 import { systemRoutes } from './modules/system/routes';
 import { deviceContactRoutes } from './modules/device-contacts/routes';
 import type { GatewayClient } from './lib/gateway';
+import type { CredentialCipher } from '@multizap/shared/crypto';
+import { aiRoutes } from './modules/ai/routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -36,6 +38,10 @@ declare module 'fastify' {
     toolQueue: ToolQueue | null;
     campaignQueue: CampaignQueue | null;
     systemQueues: SystemQueues | null;
+    /** Cifra das credenciais (chave da OpenRouter). Null sem CREDENTIALS_MASTER_KEY. */
+    cipher: CredentialCipher | null;
+    /** fetch usado nas chamadas à OpenRouter (injetável nos testes). */
+    aiFetch: typeof fetch;
   }
 }
 
@@ -49,6 +55,8 @@ export interface BuildDeps {
   toolQueue?: ToolQueue | null;
   campaignQueue?: CampaignQueue | null;
   systemQueues?: SystemQueues | null;
+  cipher?: CredentialCipher | null;
+  aiFetch?: typeof fetch;
   logger?: boolean;
 }
 
@@ -62,6 +70,8 @@ export async function buildApp({
   toolQueue = null,
   campaignQueue = null,
   systemQueues = null,
+  cipher = null,
+  aiFetch = fetch,
   logger = true,
 }: BuildDeps): Promise<FastifyInstance> {
   const app = Fastify({
@@ -93,6 +103,8 @@ export async function buildApp({
   app.decorate('toolQueue', toolQueue);
   app.decorate('campaignQueue', campaignQueue);
   app.decorate('systemQueues', systemQueues);
+  app.decorate('cipher', cipher);
+  app.decorate('aiFetch', aiFetch);
 
   await app.register(sensible);
   await app.register(multipart, {
@@ -150,6 +162,7 @@ export async function buildApp({
   await app.register(reportRoutes);
   await app.register(systemRoutes);
   await app.register(deviceContactRoutes);
+  await app.register(aiRoutes);
 
   return app;
 }

@@ -217,6 +217,7 @@ model Account {
   campaignRecipients CampaignRecipient[]
   conversations      Conversation[]
   waIdentities       WaIdentity[]
+  aiAgentLinks       AiAgentAccount[]
   messages           Message[]
   messageEvents      MessageEvent[]
   dailyMetrics       DailyMetric[]
@@ -800,4 +801,223 @@ model Backup {
 
   @@index([createdAt])
   @@map("backups")
+}
+
+// ─── MultiZap AI (Entrega 1: personas, agentes, versões, laboratório) ───────
+
+enum AiAgentMode {
+  REVIEW // a IA escreve o rascunho; o administrador envia
+  AUTO // a IA envia sozinha (ligado explicitamente pelo administrador)
+}
+
+enum AiAgentStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum AiUsageContext {
+  TEST
+  LIVE
+}
+
+enum AiEventCategory {
+  WHATSAPP
+  OPENROUTER
+  AGENT
+  KNOWLEDGE
+  DELIVERY
+}
+
+/// Credenciais de provedores de IA (a chave fica sempre criptografada).
+model AiCredential {
+  id         String    @id @default(uuid()) @db.Uuid
+  provider   String    @unique // "openrouter"
+  keyEnc     Bytes     @map("key_enc")
+  keyVersion Int       @default(1) @map("key_version")
+  keyLast4   String    @map("key_last4")
+  lastTestAt DateTime? @map("last_test_at")
+  lastTestOk Boolean?  @map("last_test_ok")
+  lastError  String?   @map("last_error")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@map("ai_credentials")
+}
+
+/// Persona (personagem) reutilizável por vários agentes. is_template = modelo.
+model AiPersona {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  isTemplate         Boolean  @default(false) @map("is_template")
+  age                Int?
+  identity           String?
+  biography          String?
+  backstory          String?
+  personality        String?
+  traits             String?
+  toneOfVoice        String?  @map("tone_of_voice")
+  communicationStyle String?  @map("communication_style")
+  formality          String   @default("neutral") // formal | neutral | informal
+  emojiUsage         String   @default("low") @map("emoji_usage") // none | low | medium | high
+  responseLength     String   @default("short") @map("response_length") // short | medium | long
+  conversationStart  String?  @map("conversation_start")
+  expressions        String[] @default([])
+  instructions       String?
+  rules              String?
+  allowedTopics      String?  @map("allowed_topics")
+  restrictedTopics   String?  @map("restricted_topics")
+  openingMessages    String[] @default([]) @map("opening_messages")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  revisions AiPersonaRevision[]
+  agents    AiAgent[]
+
+  @@index([isTemplate, name])
+  @@map("ai_personas")
+}
+
+/// Histórico de alterações de uma persona (fotografia completa a cada edição).
+model AiPersonaRevision {
+  id        String   @id @default(uuid()) @db.Uuid
+  personaId String   @map("persona_id") @db.Uuid
+  snapshot  Json
+  summary   String
+  changedBy String?  @map("changed_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  persona AiPersona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@index([personaId, createdAt])
+  @@map("ai_persona_revisions")
+}
+
+/// Agente operacional: persona + modelo + regras próprias de operação.
+model AiAgent {
+  id                 String        @id @default(uuid()) @db.Uuid
+  name               String
+  personaId          String        @map("persona_id") @db.Uuid
+  model              String
+  temperature        Float?
+  maxTokens          Int           @default(400) @map("max_tokens")
+  instructions       String?
+  memoryEnabled      Boolean       @default(true) @map("memory_enabled")
+  mode               AiAgentMode   @default(REVIEW)
+  status             AiAgentStatus @default(DRAFT)
+  publishedVersionId String?       @unique @map("published_version_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  persona          AiPersona        @relation(fields: [personaId], references: [id], onDelete: Restrict)
+  versions         AiAgentVersion[] @relation("AgentVersions")
+  publishedVersion AiAgentVersion?  @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  accounts         AiAgentAccount[]
+  testSessions     AiTestSession[]
+  usage            AiTokenUsage[]
+  events           AiAgentEvent[]
+
+  @@index([status])
+  @@map("ai_agents")
+}
+
+/// Versão publicada de um agente: fotografia da configuração e da persona usadas.
+model AiAgentVersion {
+  id        String   @id @default(uuid()) @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  number    Int
+  snapshot  Json
+  note      String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent       AiAgent  @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  publishedBy AiAgent? @relation("PublishedVersion")
+
+  @@unique([agentId, number])
+  @@map("ai_agent_versions")
+}
+
+/// Vínculo agente ↔ instância de WhatsApp (só um agente ATIVO por instância).
+model AiAgentAccount {
+  id        String   @id @default(uuid()) @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent   AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, accountId])
+  @@index([accountId])
+  @@map("ai_agent_accounts")
+}
+
+/// Sessão do laboratório (simulação: nunca envia mensagens reais).
+model AiTestSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  source    String // draft | published
+  versionId String?  @map("version_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent    AiAgent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages AiTestMessage[]
+
+  @@index([agentId, createdAt])
+  @@map("ai_test_sessions")
+}
+
+model AiTestMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  role      String // user | assistant | error
+  content   String
+  debug     Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session AiTestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("ai_test_messages")
+}
+
+/// Consumo de tokens e custo de cada chamada ao modelo.
+model AiTokenUsage {
+  id               String         @id @default(uuid()) @db.Uuid
+  agentId          String?        @map("agent_id") @db.Uuid
+  accountId        String?        @map("account_id") @db.Uuid
+  context          AiUsageContext
+  model            String
+  promptTokens     Int            @default(0) @map("prompt_tokens")
+  completionTokens Int            @default(0) @map("completion_tokens")
+  /// Custo em dólares. cost_confirmed = informado pela OpenRouter; senão, estimado pela tabela de preços.
+  costUsd          Decimal?       @map("cost_usd") @db.Decimal(14, 8)
+  costConfirmed    Boolean        @default(false) @map("cost_confirmed")
+  latencyMs        Int?           @map("latency_ms")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  agent AiAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+  @@map("ai_token_usage")
+}
+
+/// Eventos operacionais dos agentes, separados pela origem do problema.
+model AiAgentEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  agentId   String?         @map("agent_id") @db.Uuid
+  category  AiEventCategory
+  level     String // info | warn | error
+  message   String
+  details   Json            @default("{}")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  agent AiAgent? @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([category, createdAt])
+  @@map("ai_agent_events")
 }

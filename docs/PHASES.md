@@ -493,5 +493,5 @@
 - **Transparência:** o laboratório mostra os trechos usados; Atendimentos mostra "Baseada em…" em cada rascunho.
 - **Segurança:** leitura de links protegida contra acesso à rede interna (SSRF), com limites de tamanho, tempo e redirecionamentos; arquivos só no bucket.
 - Nova fila `ai-knowledge` no worker e migração reversível `20261127120000_ai_knowledge` (só tabelas novas).
-- Testes: 8 do pacote de IA, 17 do processamento e busca, 5 do atendimento com base, 11 de rotas; 14 de ponta a ponta.
+- Testes: 8 do pacote de IA, 17 do processamento, SSRF e busca, 5 do atendimento com base, 11 de rotas; 14 de ponta a ponta.
 - Passo de implantação: nenhuma variável nova. O worker precisa continuar com `CREDENTIALS_MASTER_KEY`.

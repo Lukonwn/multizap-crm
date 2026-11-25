@@ -218,12 +218,17 @@ export class AiResponder {
           .slice(-2)
           .map((m) => m.content)
           .join(' ');
-        hits = (await searchKnowledge(
-          prisma,
-          agent.id,
-          buildSearchQuery(recent),
-          KNOWLEDGE_LIMITS.searchLimit,
-        )) as KnowledgeHit[];
+        const query = buildSearchQuery(recent);
+        // Mensagem sem termos de busca (ex.: "Oi"): não há o que consultar na base, e o agente
+        // não deve tratar isso como "informação que falta".
+        knowledgeSearched = query !== '';
+        if (knowledgeSearched)
+          hits = (await searchKnowledge(
+            prisma,
+            agent.id,
+            query,
+            KNOWLEDGE_LIMITS.searchLimit,
+          )) as KnowledgeHit[];
       }
     } catch (err) {
       this.log('Busca na base de conhecimento falhou', { agentId: agent.id, err: String(err) });

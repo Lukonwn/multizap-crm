@@ -248,9 +248,22 @@ describe('MultiZap AI: atendimento', () => {
       const c = await setup('REVIEW', 'Vocês aceitam pix?');
       await addSource(c.agentId, 'Garantia', 'Garantia de um ano contra defeitos de fabricação.');
       await run(c);
-      expect(systemPrompt()).toMatch(/não tem informação sobre esta pergunta/);
+      expect(systemPrompt()).toMatch(/não traz nada sobre esta mensagem/);
+      expect(systemPrompt()).toMatch(/cumprimentos e conversa em geral, responda normalmente/i);
       expect(systemPrompt()).not.toContain('Informações da empresa');
       expect((await prisma.aiDraft.findFirstOrThrow()).sources).toEqual([]);
+    });
+
+    it('saudação sem termos de busca ("Oi") não faz o agente tratar a base como lacuna nem empurrar para um atendente', async () => {
+      const c = await setup('REVIEW', 'Oi');
+      await addSource(
+        c.agentId,
+        'Catálogo',
+        'O café Bourbon amarelo custa R$ 42 o pacote de 250g.',
+      );
+      await run(c);
+      expect(systemPrompt()).not.toMatch(/não traz nada sobre esta mensagem/);
+      expect(systemPrompt()).not.toContain('Informações da empresa');
     });
 
     it('agente sem base de conhecimento responde como antes (sem aviso de base vazia)', async () => {

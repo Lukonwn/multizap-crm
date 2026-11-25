@@ -377,6 +377,6 @@ describe('conhecimento de cada agente', () => {
       text: 'Vocês têm filial em Recife?',
     });
     expect(r2.json().messages[1].debug.knowledge).toEqual([]);
-    expect(chatBodies[1]!.messages[0]!.content).toMatch(/não tem informação sobre esta pergunta/);
+    expect(chatBodies[1]!.messages[0]!.content).toMatch(/não traz nada sobre esta mensagem/);
   });
 });

@@ -108,7 +108,7 @@ export function buildSystemPrompt(
     );
   } else if (ctx.knowledgeSearched)
     sections.push(
-      'A base de conhecimento da empresa foi consultada e não tem informação sobre esta pergunta. Não invente preços, prazos, políticas ou detalhes: diga que vai verificar e ofereça um atendente.',
+      'A base de conhecimento da empresa foi consultada e não traz nada sobre esta mensagem. Se o contato perguntar sobre fatos da empresa (preços, produtos, prazos, estoque, políticas, endereço), não invente: diga que vai verificar e ofereça um atendente. Para cumprimentos e conversa em geral, responda normalmente e pergunte como pode ajudar.',
     );
   sections.push(`Regras que sempre valem:\n${FIXED_RULES.map((r) => `- ${r}`).join('\n')}`);
   return sections.filter((s): s is string => !!s).join('\n\n');

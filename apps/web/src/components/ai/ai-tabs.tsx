@@ -8,8 +8,11 @@ const TABS = [
   { href: '/ai/personas', label: 'Personas' },
   { href: '/ai/gerador', label: 'Gerador de Persona' },
   { href: '/ai/conhecimento', label: 'Conhecimento' },
+  { href: '/ai/entregaveis', label: 'Entregáveis' },
   { href: '/ai/atendimentos', label: 'Atendimentos' },
   { href: '/ai/laboratorio', label: 'Laboratório' },
+  { href: '/ai/metricas', label: 'Métricas' },
+  { href: '/ai/saude', label: 'Saúde' },
   { href: '/ai/configuracoes', label: 'Configurações' },
 ];
 

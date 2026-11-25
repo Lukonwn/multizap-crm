@@ -36,6 +36,8 @@ import { aiRoutes } from './modules/ai/routes';
 import { aiServiceRoutes } from './modules/ai/service-routes';
 import { aiKnowledgeRoutes } from './modules/ai/knowledge-routes';
 import { aiGeneratorRoutes } from './modules/ai/generator-routes';
+import { aiDeliverableRoutes } from './modules/ai/deliverable-routes';
+import { aiAnalyticsRoutes } from './modules/ai/analytics-routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -184,6 +186,8 @@ export async function buildApp({
   await app.register(aiServiceRoutes);
   await app.register(aiKnowledgeRoutes);
   await app.register(aiGeneratorRoutes);
+  await app.register(aiDeliverableRoutes);
+  await app.register(aiAnalyticsRoutes);
 
   return app;
 }

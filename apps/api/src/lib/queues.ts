@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import {
   AI_GENERATOR_QUEUE,
   AI_KNOWLEDGE_QUEUE,
+  AI_QUEUE,
   CAMPAIGNS_QUEUE,
   GATEWAY_QUEUE,
   IMPORTS_QUEUE,
@@ -168,6 +169,8 @@ export class SystemQueues {
   private readonly conn: Redis;
   readonly maintenance: Queue<MaintenanceJob>;
   private readonly inspect: Map<string, Queue>;
+  /** Filas do MultiZap AI: lidas só pela tela de saúde da IA (ficam fora da lista do System Health). */
+  private readonly ai: Map<string, Queue>;
 
   constructor(redisUrl: string, prefix = 'bull') {
     this.conn = new Redis(redisUrl, { maxRetriesPerRequest: null });
@@ -184,6 +187,12 @@ export class SystemQueues {
       ]),
     );
     this.inspect.set(MAINTENANCE_QUEUE, this.maintenance as unknown as Queue);
+    this.ai = new Map(
+      [AI_QUEUE, AI_KNOWLEDGE_QUEUE, AI_GENERATOR_QUEUE].map((name) => [
+        name,
+        new Queue(name, { connection: this.conn, prefix }),
+      ]),
+    );
   }
 
   async addBackup(backupId: string): Promise<void> {
@@ -191,6 +200,24 @@ export class SystemQueues {
       'backup',
       { type: 'backup', backupId },
       { jobId: `backup-${backupId}` },
+    );
+  }
+
+  /** Contagem das filas do MultiZap AI (atendimento, conhecimento e gerador). */
+  async aiCounts(): Promise<QueueCounts[]> {
+    return Promise.all(
+      [...this.ai].map(async ([name, q]) => {
+        const c = await q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed');
+        return {
+          name,
+          label: QUEUE_LABEL[name] ?? name,
+          waiting: c.waiting ?? 0,
+          active: c.active ?? 0,
+          delayed: c.delayed ?? 0,
+          failed: c.failed ?? 0,
+          completed: c.completed ?? 0,
+        };
+      }),
     );
   }
 
@@ -212,7 +239,7 @@ export class SystemQueues {
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.inspect.values()].map((q) => q.close()));
+    await Promise.all([...this.inspect.values(), ...this.ai.values()].map((q) => q.close()));
     this.conn.disconnect();
   }
 }

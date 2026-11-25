@@ -190,3 +190,7 @@ Estes pontos não puderam ser testados no ambiente de desenvolvimento (sem acess
 | 11  | Pausa global              | Pause em System Health e tente responder uma conversa                                                                   | Resposta bloqueada com aviso; retome em seguida                             |
 
 Guarde em local seguro, fora da Railway, uma cópia de `CREDENTIALS_MASTER_KEY` e `BACKUP_ENCRYPTION_KEY`.
+
+## MultiZap AI: aviso de pagamento (itens pagos)
+
+Sem variável nova. Em **MultiZap AI → Configurações → Aviso de pagamento**, gere o segredo (mostrado uma vez) e configure o seu sistema de pagamento para enviar um `POST` a `https://<seu-painel>/api/webhooks/ai-payments` com os cabeçalhos `x-multizap-timestamp` e `x-multizap-signature` (HMAC-SHA256 em hexadecimal de `"<timestamp>.<corpo>"`) e o corpo `{ "reference", "status", "amountCents", "externalId" }`. Sem isso, a confirmação de pagamento continua possível manualmente, em Atendimentos.

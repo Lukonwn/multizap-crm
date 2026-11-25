@@ -193,3 +193,57 @@ describe('Gerador de Persona: pedido ao modelo', () => {
     expect(FIXED_RULES.join(' ')).toMatch(/menos de 18 anos/);
   });
 });
+
+import { buildSystemPrompt, extractDelivery } from '../src/prompt';
+
+describe('entregáveis no prompt e no marcador', () => {
+  const items = [
+    {
+      code: 'ebook-cafe',
+      name: 'E-book de cafés',
+      description: 'Guia de métodos de preparo',
+      requiresPayment: true,
+      priceCents: 4990,
+      paymentInstructions: 'Pix 11 99999-0000',
+    },
+    { code: 'amostra', name: 'Amostra grátis', adultOnly: false },
+    {
+      code: 'conteudo-18',
+      name: 'Conteúdo adulto',
+      adultOnly: true,
+      requiresPayment: true,
+      priceCents: 1500,
+      paymentInstructions: 'Pix',
+    },
+  ];
+
+  it('o catálogo mostra código, preço, como pagar e o aviso de adulto; e proíbe afirmar pagamento', () => {
+    const p = buildSystemPrompt({ name: 'Marina' }, { name: 'A' }, { deliverables: items });
+    expect(p).toContain(
+      '[ebook-cafe] E-book de cafés: Guia de métodos de preparo (PAGO (R$ 49,90). Como pagar: Pix 11 99999-0000)',
+    );
+    expect(p).toContain('[amostra] Amostra grátis (gratuito)');
+    expect(p).toContain('só para adultos confirmados');
+    expect(p).toMatch(/\[\[ENTREGAR:codigo\]\]/);
+    expect(p).toMatch(/NUNCA diga que recebeu o pagamento/);
+  });
+
+  it('sem entregáveis o prompt não fala de entrega', () => {
+    expect(buildSystemPrompt({ name: 'Marina' }, { name: 'A' })).not.toMatch(/ENTREGAR/);
+  });
+
+  it('extrai o primeiro código, remove todos os marcadores e limpa o texto', () => {
+    expect(extractDelivery('Claro! Segue o e-book. [[ENTREGAR:ebook-cafe]]')).toEqual({
+      text: 'Claro! Segue o e-book.',
+      code: 'ebook-cafe',
+    });
+    expect(extractDelivery('Oi [[entregar: Amostra ]] tchau [[ENTREGAR:outro-item]]')).toEqual({
+      text: 'Oi  tchau',
+      code: 'amostra',
+    });
+    expect(extractDelivery('Sem entrega aqui.')).toEqual({ text: 'Sem entrega aqui.', code: null });
+    expect(extractDelivery('[[ENTREGAR:ebook-cafe]]')).toEqual({ text: '', code: 'ebook-cafe' });
+    // códigos inválidos não são marcadores (continuam como texto)
+    expect(extractDelivery('veja [[ENTREGAR:a]]').code).toBeNull();
+  });
+});

@@ -119,6 +119,21 @@ function DebugPanel({ m, session }: { m: TestMessageDTO | null; session: TestSes
                 </>
               )}
             </dl>
+            {d?.delivery && (
+              <div className="border-t border-border pt-3">
+                <p className="mb-1.5 text-xs font-medium text-muted">Simulação de entrega</p>
+                <p className="text-sm text-fg">
+                  O agente entregaria: <strong>{d.delivery.name}</strong> ({d.delivery.code})
+                </p>
+                <p className="text-xs text-muted">
+                  {d.delivery.condition}; {d.delivery.approval}
+                  {d.delivery.adultOnly ? '; só para adultos confirmados' : ''}.
+                </p>
+                <p className="mt-1 text-xs text-subtle">
+                  Nada foi criado nem enviado: o laboratório só simula.
+                </p>
+              </div>
+            )}
             {d?.knowledge !== undefined && (
               <div className="border-t border-border pt-3">
                 <p className="mb-1.5 text-xs font-medium text-muted">Trechos da base usados</p>

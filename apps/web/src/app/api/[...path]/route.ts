@@ -18,6 +18,9 @@ const FORWARD_REQUEST_HEADERS = [
   'sec-fetch-site',
   'x-forwarded-for',
   'x-real-ip',
+  // Aviso de pagamento assinado (sistemas externos): a assinatura é conferida na API.
+  'x-multizap-signature',
+  'x-multizap-timestamp',
 ];
 const DROP_RESPONSE_HEADERS = new Set([
   'content-encoding',

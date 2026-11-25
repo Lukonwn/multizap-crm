@@ -32,7 +32,9 @@ import { formatDateTime } from '@/lib/format';
 import {
   formatUsd,
   useAgent,
+  useAgentDeliverables,
   useAgentKnowledge,
+  useDeliverables,
   useKnowledge,
   useAgentVersions,
   useAiMutation,
@@ -420,6 +422,96 @@ function KnowledgeCard({ agent }: { agent: AgentDTO }) {
   );
 }
 
+function DeliverablesCard({ agent }: { agent: AgentDTO }) {
+  const items = useDeliverables();
+  const linked = useAgentDeliverables(agent.id);
+  const save = useAiMutation();
+  const [selected, setSelected] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+  const current = selected ?? linked.data ?? [];
+  const list = items.data ?? [];
+  const dirty =
+    selected !== null &&
+    (selected.length !== (linked.data?.length ?? 0) ||
+      selected.some((id) => !linked.data?.includes(id)));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Entregáveis</CardTitle>
+        <CardDescription>
+          Itens que o agente pode oferecer e entregar. Vale na hora, sem nova publicação.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {items.isLoading || linked.isLoading ? (
+          <Spinner />
+        ) : !list.length ? (
+          <p className="text-sm text-muted">
+            Nenhum entregável cadastrado.{' '}
+            <Link className="underline" href="/ai/entregaveis">
+              Cadastrar
+            </Link>
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {list.map((d) => (
+              <li key={d.id}>
+                <label className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[var(--color-accent)]"
+                    checked={current.includes(d.id)}
+                    onChange={(e) => {
+                      setSaved(false);
+                      setSelected(
+                        e.target.checked ? [...current, d.id] : current.filter((x) => x !== d.id),
+                      );
+                    }}
+                  />
+                  <span className="font-medium text-fg">{d.name}</span>
+                  {d.requiresPayment && <Badge tone="warning">Pago</Badge>}
+                  {d.adultOnly && <Badge tone="danger">+18</Badge>}
+                  {!d.enabled && <Badge>Desligado</Badge>}
+                  {d.unavailable && <Badge tone="danger">Indisponível</Badge>}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        {save.error && <Alert tone="danger">{(save.error as Error).message}</Alert>}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            disabled={!dirty}
+            loading={save.isPending}
+            onClick={() =>
+              save.mutate(
+                {
+                  path: `/ai/agents/${agent.id}/deliverables`,
+                  method: 'PUT',
+                  json: { deliverableIds: current },
+                },
+                {
+                  onSuccess: () => {
+                    setSaved(true);
+                    setSelected(null);
+                  },
+                },
+              )
+            }
+          >
+            Salvar entregáveis
+          </Button>
+          {saved && <span className="text-sm text-success">Salvo.</span>}
+          <Link className="text-sm text-muted underline" href="/ai/entregaveis">
+            Gerenciar itens
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OperationCard({ agent }: { agent: AgentDTO }) {
   const save = useAiMutation();
   const [interval, setIntervalSecs] = useState(String(agent.minIntervalSeconds));
@@ -790,6 +882,7 @@ export default function AgentPage() {
         <div className="space-y-6">
           <ModeCard agent={a} />
           <KnowledgeCard agent={a} />
+          <DeliverablesCard agent={a} />
           <PublishCard agent={a} />
           <AccountsCard agent={a} />
           <OperationCard agent={a} />

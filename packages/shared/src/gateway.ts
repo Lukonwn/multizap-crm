@@ -19,6 +19,8 @@ export type GatewayCommand =
   | { type: 'send-campaign-message'; accountId: string; recipientId: string }
   /** Resposta escrita pelo administrador na Central de Mensagens. */
   | { type: 'send-reply'; accountId: string; messageId: string }
+  /** Envio de um item entregável já liberado (aprovação e pagamento conferidos pela API/worker). */
+  | { type: 'send-delivery'; accountId: string; deliveryId: string }
   /** "Digitando…" enquanto o agente gera a resposta (somente durante a geração real). */
   | { type: 'send-presence'; accountId: string; jid: string; state: 'composing' | 'paused' };
 

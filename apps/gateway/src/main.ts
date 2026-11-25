@@ -22,6 +22,7 @@ import { handleCommand } from './commands';
 import { CampaignSender } from './campaigns/sender';
 import { InboxIngest } from './inbox/ingest';
 import { ReplySender } from './inbox/reply-sender';
+import { DeliverySender } from './inbox/delivery-sender';
 import { PhotoSync } from './inbox/photo-sync';
 import { AppStateMonitor } from './whatsapp/app-state-monitor';
 import { storageFromEnv } from '@multizap/storage';
@@ -137,6 +138,7 @@ const manager = new SessionManager(prisma, redis, factory, store, locks, {
 // Fotos de perfil das conversas existentes (devagar, poucas por vez).
 const stopPhotos = storage ? new PhotoSync(prisma, storage, manager, log).start() : () => undefined;
 const replies = new ReplySender(prisma, manager, log);
+const deliveries = new DeliverySender(prisma, storage, manager, log);
 const sender = new CampaignSender(prisma, storage, manager, log);
 const interrupted = await sender.recoverInterrupted();
 if (interrupted) log('Envios interrompidos marcados para conferência', { interrupted });
@@ -152,7 +154,7 @@ const worker = new Worker<GatewayCommand>(
   GATEWAY_QUEUE,
   async (job) => {
     log('Comando recebido', { type: job.data.type, accountId: job.data.accountId });
-    await handleCommand(manager, sender, job.data, replies);
+    await handleCommand(manager, sender, job.data, replies, deliveries);
   },
   { connection: redis.duplicate(), concurrency: 5, prefix: process.env.BULLMQ_PREFIX || 'bull' },
 );

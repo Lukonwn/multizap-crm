@@ -2,6 +2,7 @@ import type { GatewayCommand } from '@multizap/shared';
 import type { SessionManager } from './session/manager';
 import type { CampaignSender } from './campaigns/sender';
 import type { ReplySender } from './inbox/reply-sender';
+import type { DeliverySender } from './inbox/delivery-sender';
 
 /** Executa um comando recebido da API pela fila. */
 export async function handleCommand(
@@ -9,6 +10,7 @@ export async function handleCommand(
   sender: CampaignSender,
   cmd: GatewayCommand,
   replies?: ReplySender,
+  deliveries?: DeliverySender,
 ): Promise<void> {
   switch (cmd.type) {
     case 'start-pairing':
@@ -29,6 +31,8 @@ export async function handleCommand(
       return sender.send(cmd.recipientId);
     case 'send-reply':
       return replies?.send(cmd.messageId);
+    case 'send-delivery':
+      return deliveries?.send(cmd.deliveryId);
     case 'send-presence':
       return manager.sendPresence(cmd.accountId, cmd.jid, cmd.state);
   }

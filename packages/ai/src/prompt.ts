@@ -28,7 +28,20 @@ export interface AgentSpec {
   instructions?: string | null;
 }
 
+/** Item que o agente pode entregar (catálogo mostrado ao modelo). */
+export interface DeliverableSpec {
+  code: string;
+  name: string;
+  description?: string | null;
+  adultOnly?: boolean;
+  requiresPayment?: boolean;
+  priceCents?: number | null;
+  paymentInstructions?: string | null;
+}
+
 export interface PromptContext {
+  /** Itens que este agente pode entregar. */
+  deliverables?: DeliverableSpec[];
   /** Trechos da base de conhecimento relevantes para a pergunta (Entrega 3). */
   knowledge?: { title: string; text: string }[];
   /** Resumo do que já se sabe sobre o contato (Entrega 2). */
@@ -71,6 +84,27 @@ const LENGTH: Record<string, string> = {
 const line = (label: string, v: string | null | undefined) =>
   v?.trim() ? `${label}: ${v.trim()}` : null;
 
+const brl = (cents: number) =>
+  `R$ ${(cents / 100)
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+
+function deliverablesSection(items: DeliverableSpec[]): string {
+  const lines = items.map((d) => {
+    const cond = d.requiresPayment
+      ? `PAGO (${d.priceCents ? brl(d.priceCents) : 'valor a combinar'})${d.paymentInstructions ? `. Como pagar: ${d.paymentInstructions}` : ''}`
+      : 'gratuito';
+    return `- [${d.code}] ${d.name}${d.description ? `: ${d.description}` : ''} (${cond}${d.adultOnly ? '; só para adultos confirmados' : ''})`;
+  });
+  return [
+    'Itens que você pode entregar ao contato (use o código exato, entre colchetes):',
+    ...lines,
+    'Como entregar: quando o contato pedir um item, ou aceitar uma oferta sua, escreva a resposta normalmente e termine com [[ENTREGAR:codigo]] (no máximo um por mensagem). Não escreva o marcador se o contato não pediu nem aceitou.',
+    'O envio é feito pelo sistema, depois das verificações. Para item PAGO: explique o valor e como pagar e use o marcador; o sistema só entrega depois de CONFIRMAR o pagamento por outra fonte. NUNCA diga que recebeu o pagamento nem que o item já foi enviado; se o contato disser que pagou, responda que vai conferir. Não ofereça nada que não esteja nesta lista.',
+  ].join('\n');
+}
+
 /** Monta o prompt de sistema a partir da persona, do agente e do contexto. */
 export function buildSystemPrompt(
   persona: PersonaSpec,
@@ -111,6 +145,7 @@ export function buildSystemPrompt(
     sections.push(
       'A base de conhecimento da empresa foi consultada e não traz nada sobre esta mensagem. Se o contato perguntar sobre fatos da empresa (preços, produtos, prazos, estoque, políticas, endereço), não invente: diga que vai verificar e ofereça um atendente. Para cumprimentos e conversa em geral, responda normalmente e pergunte como pode ajudar.',
     );
+  if (ctx.deliverables?.length) sections.push(deliverablesSection(ctx.deliverables));
   sections.push(`Regras que sempre valem:\n${FIXED_RULES.map((r) => `- ${r}`).join('\n')}`);
   return sections.filter((s): s is string => !!s).join('\n\n');
 }
@@ -127,4 +162,23 @@ export function buildMessages(
     { role: 'system', content: buildSystemPrompt(persona, agent, ctx) },
     ...history.slice(-maxHistory).map((m) => ({ role: m.role, content: m.content })),
   ];
+}
+
+const DELIVER_RE = /\[\[\s*ENTREGAR\s*:\s*([a-z0-9][a-z0-9_-]{2,39})\s*\]\]/gi;
+
+/**
+ * Separa o marcador de entrega do texto da resposta. Devolve o texto sem nenhum marcador
+ * (o contato nunca vê o marcador) e o código do PRIMEIRO item pedido, se houver.
+ */
+export function extractDelivery(reply: string): { text: string; code: string | null } {
+  let code: string | null = null;
+  const text = reply
+    .replace(DELIVER_RE, (_m, c: string) => {
+      code ??= c.toLowerCase();
+      return '';
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { text, code };
 }

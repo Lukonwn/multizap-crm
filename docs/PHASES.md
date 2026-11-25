@@ -508,3 +508,16 @@
 - Migração reversível `20261129120000_ai_generator`.
 - Testes: segurança de idade (66), gerador (20 do pacote), respondedor (14 novos), processador do gerador (10), rotas (20); e2e.
 - Passo de implantação: nenhuma variável nova.
+
+## MultiZap AI: Entrega 4 (entregáveis) ✅
+
+- Nova aba **Entregáveis**: arquivos da biblioteca (imagem, vídeo, áudio, PDF), textos e links que o agente pode entregar; aprovação automática ou manual; itens pagos; itens adultos.
+- O agente pede o item com um marcador que o contato nunca vê. **Pagamento só é confirmado pelo administrador ou por um aviso assinado do sistema de pagamento**; "já paguei" só avisa o administrador. Item adulto só sai com a pergunta de 18 anos ligada e confirmada, e nunca para conversa travada por menor.
+- Em **Atendimentos**: entregas da conversa com código do pedido, confirmar pagamento, aprovar, cancelar e tentar de novo. Em **Configurações**: segredo e instruções do aviso de pagamento.
+- O gateway envia imagem, vídeo, áudio, documento, texto e link, reconferindo as regras no envio. O laboratório só simula.
+- Migração reversível `20261130120000_ai_deliverables`. Passo de implantação: nenhuma variável nova.
+
+## MultiZap AI: Entrega 5 (métricas, monitoramento e notificações) ✅
+
+- Abas **Métricas** (atendimento, aprovação, tempo, base de conhecimento, custo, entregas, vendas confirmadas e série diária, por período, agente e instância) e **Saúde** (agentes, chave e créditos, serviços, filas, eventos e pendências, com alertas que dizem onde resolver).
+- Notificações novas: agente parado por erro, entrega aguardando aprovação ou com falha, pagamento declarado, com valor menor e confirmado.

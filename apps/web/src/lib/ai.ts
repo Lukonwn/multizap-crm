@@ -2,7 +2,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AgentDTO,
+  AiAnalyticsDTO,
   AiConversationDTO,
+  AiHealthDTO,
+  AiDeliverableDTO,
+  AiDeliveryDTO,
+  AiPaymentWebhookDTO,
   AiGenerationDTO,
   AiKnowledgeSourceDTO,
   AiDraftDTO,
@@ -35,6 +40,13 @@ export const aiKeys = {
   knowledge: (q: string) => ['ai', 'knowledge', q] as const,
   knowledgeDetail: (id: string) => ['ai', 'knowledge', 'detail', id] as const,
   agentKnowledge: (id: string) => ['ai', 'agent', id, 'knowledge'] as const,
+  deliverables: ['ai', 'deliverables'] as const,
+  agentDeliverables: (id: string) => ['ai', 'agent', id, 'deliverables'] as const,
+  deliveries: (conversationId: string) => ['ai', 'deliveries', conversationId] as const,
+  paymentWebhook: ['ai', 'payments', 'webhook'] as const,
+  analytics: (days: number, agentId: string, accountId: string) =>
+    ['ai', 'analytics', days, agentId, accountId] as const,
+  health: ['ai', 'health'] as const,
   generations: ['ai', 'generator'] as const,
   generation: (id: string) => ['ai', 'generator', id] as const,
 };
@@ -198,6 +210,63 @@ export async function uploadKnowledgeFile(file: File, name: string): Promise<AiK
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error?.message ?? 'Não foi possível enviar o arquivo.');
   return data.source;
+}
+
+export function useDeliverables() {
+  return useQuery({
+    queryKey: aiKeys.deliverables,
+    queryFn: () => api<{ items: AiDeliverableDTO[] }>('/ai/deliverables').then((r) => r.items),
+  });
+}
+
+export function useAgentDeliverables(agentId: string | null) {
+  return useQuery({
+    queryKey: aiKeys.agentDeliverables(agentId ?? ''),
+    queryFn: () =>
+      api<{ deliverableIds: string[] }>(`/ai/agents/${agentId}/deliverables`).then(
+        (r) => r.deliverableIds,
+      ),
+    enabled: !!agentId,
+  });
+}
+
+/** Entregas de uma conversa; atualiza sozinha enquanto há algo em andamento. */
+export function useDeliveries(conversationId: string | null) {
+  return useQuery({
+    queryKey: aiKeys.deliveries(conversationId ?? ''),
+    queryFn: () =>
+      api<{ items: AiDeliveryDTO[] }>(
+        `/ai/deliveries?${toQueryString({ conversationId: conversationId ?? undefined })}`,
+      ).then((r) => r.items),
+    enabled: !!conversationId,
+    refetchInterval: 4000,
+  });
+}
+
+export function usePaymentWebhook() {
+  return useQuery({
+    queryKey: aiKeys.paymentWebhook,
+    queryFn: () => api<AiPaymentWebhookDTO>('/ai/payments/webhook'),
+  });
+}
+
+export function useAnalytics(days: number, agentId: string, accountId: string) {
+  return useQuery({
+    queryKey: aiKeys.analytics(days, agentId, accountId),
+    queryFn: () =>
+      api<AiAnalyticsDTO>(
+        `/ai/analytics?${toQueryString({ days, agentId: agentId || undefined, accountId: accountId || undefined })}`,
+      ),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useAiHealth() {
+  return useQuery({
+    queryKey: aiKeys.health,
+    queryFn: () => api<AiHealthDTO>('/ai/health'),
+    refetchInterval: 15_000,
+  });
 }
 
 /** Gerações recentes do Gerador de Persona (sem o pacote). */

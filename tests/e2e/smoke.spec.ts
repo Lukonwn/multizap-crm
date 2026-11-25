@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN } from './playwright.config';
@@ -33,6 +34,9 @@ const MODULES = [
   ['/ai/atendimentos', 'MultiZap AI'],
   ['/ai/conhecimento', 'MultiZap AI'],
   ['/ai/gerador', 'MultiZap AI'],
+  ['/ai/entregaveis', 'MultiZap AI'],
+  ['/ai/metricas', 'MultiZap AI'],
+  ['/ai/saude', 'MultiZap AI'],
   ['/system-health', 'System Health'],
   ['/configuracoes', 'Configurações'],
 ] as const;
@@ -172,6 +176,17 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await expect(page.locator('span', { hasText: /^Pronta$/ })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('Qual o prazo de entrega?').first()).toBeVisible();
 
+  // Entregáveis: cadastra um item de texto pela tela.
+  await page.goto('/ai/entregaveis');
+  await expect(page.getByText('Nenhum entregável ainda')).toBeVisible();
+  await page.getByRole('button', { name: 'Novo entregável' }).first().click();
+  await page.getByLabel('Nome', { exact: true }).fill('Código de acesso');
+  await page.getByRole('tab', { name: 'Texto' }).click();
+  await page.getByLabel('Texto a entregar').fill('Seu código de acesso: CAFE2026');
+  await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(page.getByText('Código de acesso').first()).toBeVisible();
+  await expect(page.getByText('nenhum agente ainda')).toBeVisible();
+
   await page.goto('/ai/agentes');
   await page.getByRole('button', { name: 'Novo agente' }).click();
   await page.getByLabel('Nome do agente').fill('Atendente E2E');
@@ -188,6 +203,10 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByRole('checkbox', { name: /Qual o prazo de entrega/ }).check();
   await page.getByRole('button', { name: 'Salvar conhecimento' }).click();
   await expect(page.getByText('Salvo.', { exact: true })).toBeVisible();
+
+  await page.getByRole('checkbox', { name: /Código de acesso/ }).check();
+  await page.getByRole('button', { name: 'Salvar entregáveis' }).click();
+  await expect(page.getByRole('button', { name: 'Salvar entregáveis' })).toBeDisabled();
 
   await page.getByRole('button', { name: 'Publicar versão' }).click();
   await expect(page.getByText('Publicada: v1')).toBeVisible();
@@ -207,6 +226,45 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByLabel('Mensagem de teste').fill('Olá, tudo bem?');
   await page.getByRole('button', { name: 'Enviar mensagem de teste' }).click();
   await expect(page.getByText('Configure a chave da OpenRouter')).toBeVisible();
+});
+
+test('métricas e saúde da IA abrem com dados reais (sem inventar números)', async () => {
+  await page.goto('/ai/metricas');
+  await expect(page.getByText('Conversas atendidas')).toBeVisible();
+  await expect(page.getByText('Respostas da IA').first()).toBeVisible();
+  await page.goto('/ai/saude');
+  await expect(page.getByRole('heading', { name: 'Serviços' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Filas' })).toBeVisible();
+});
+
+test('aviso de pagamento: a assinatura chega à API pelo painel e só vale assinada', async () => {
+  const csrf = (await page.context().cookies()).find((c) => c.name === 'mz_csrf')!.value;
+  const rotated = await page.request.post('/api/ai/payments/webhook/rotate', {
+    headers: { 'x-csrf-token': csrf },
+  });
+  expect(rotated.status()).toBe(200);
+  const { secret } = await rotated.json();
+  const body = JSON.stringify({
+    reference: 'MZ-NAOEXI',
+    status: 'paid',
+    amountCents: 100,
+    externalId: 'e2e-1',
+  });
+  const ts = String(Math.floor(Date.now() / 1000));
+  const post = (signature: string) =>
+    page.request.post('/api/webhooks/ai-payments', {
+      headers: {
+        'content-type': 'application/json',
+        'x-multizap-timestamp': ts,
+        'x-multizap-signature': `sha256=${signature}`,
+      },
+      data: body,
+    });
+  const good = createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
+  // Assinatura válida: passa pela conferência e só falha por o pedido não existir.
+  expect((await post(good)).status()).toBe(404);
+  // Assinatura inválida: recusada antes de olhar o pedido.
+  expect((await post('0'.repeat(64))).status()).toBe(401);
 });
 
 test('higienizador processa uma lista e gera arquivo para download', async () => {

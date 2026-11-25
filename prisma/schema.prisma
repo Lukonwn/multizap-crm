@@ -489,6 +489,7 @@ model Asset {
   usages           AssetUsage[]
   campaigns        Campaign[]
   campaignAccounts CampaignAccount[]
+  aiDeliverables   AiDeliverable[]
 
   @@index([folderId])
   @@index([kind])
@@ -607,11 +608,12 @@ model Conversation {
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  account  Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  contact  Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  messages Message[]
-  aiState  AiConversationState?
-  aiDrafts AiDraft[]
+  account      Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact      Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages     Message[]
+  aiState      AiConversationState?
+  aiDrafts     AiDraft[]
+  aiDeliveries AiDelivery[]
 
   @@unique([accountId, remoteJid])
   @@index([accountId, lastMessageAt])
@@ -847,6 +849,34 @@ enum AiUsageContext {
   GENERATOR
 }
 
+enum AiDeliverableKind {
+  FILE
+  TEXT
+  LINK
+}
+
+enum AiApprovalMode {
+  AUTO
+  MANUAL
+}
+
+enum AiDeliveryStatus {
+  AWAITING_PAYMENT
+  AWAITING_APPROVAL
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  BLOCKED
+  CANCELED
+}
+
+enum AiPaymentStatus {
+  PENDING
+  CONFIRMED
+  CANCELED
+}
+
 enum AiGenerationStatus {
   PENDING
   PROCESSING
@@ -949,9 +979,9 @@ model AiAgent {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  persona          AiPersona          @relation(fields: [personaId], references: [id], onDelete: Restrict)
-  versions         AiAgentVersion[]   @relation("AgentVersions")
-  publishedVersion AiAgentVersion?    @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  persona          AiPersona            @relation(fields: [personaId], references: [id], onDelete: Restrict)
+  versions         AiAgentVersion[]     @relation("AgentVersions")
+  publishedVersion AiAgentVersion?      @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
   accounts         AiAgentAccount[]
   testSessions     AiTestSession[]
   usage            AiTokenUsage[]
@@ -959,6 +989,7 @@ model AiAgent {
   drafts           AiDraft[]
   messageLinks     AiMessageLink[]
   knowledge        AiAgentKnowledge[]
+  deliverables     AiAgentDeliverable[]
 
   @@index([status])
   @@map("ai_agents")
@@ -1115,6 +1146,8 @@ model AiDraft {
   autoSent         Boolean       @default(false) @map("auto_sent")
   /// Trechos da base de conhecimento usados na resposta: [{ sourceId, name, snippet }].
   sources          Json          @default("[]")
+  /// Item que o agente quis entregar junto com esta resposta (a entrega nasce quando o rascunho é aprovado).
+  deliverableId    String?       @map("deliverable_id") @db.Uuid
   decidedAt        DateTime?     @map("decided_at")
   createdAt        DateTime      @default(now()) @map("created_at")
 
@@ -1227,4 +1260,101 @@ model AiGeneration {
 
   @@index([createdAt])
   @@map("ai_generations")
+}
+
+/// Item que o agente pode entregar numa conversa (arquivo da biblioteca, texto ou link).
+model AiDeliverable {
+  id                  String            @id @default(uuid()) @db.Uuid
+  /// Código curto usado pelo agente ([[ENTREGAR:codigo]]); único.
+  code                String            @unique
+  name                String
+  /// Descrição para o agente saber quando oferecer o item.
+  description         String?
+  kind                AiDeliverableKind
+  /// FILE: criativo da biblioteca (imagem, vídeo, áudio, PDF).
+  assetId             String?           @map("asset_id") @db.Uuid
+  /// FILE: legenda opcional. TEXT: a mensagem. LINK: o endereço.
+  text                String?
+  /// Só sai para conversa que passou pela pergunta de 18 anos (e nunca com trava de menor).
+  adultOnly           Boolean           @default(false) @map("adult_only")
+  approval            AiApprovalMode    @default(MANUAL)
+  requiresPayment     Boolean           @default(false) @map("requires_payment")
+  priceCents          Int?              @map("price_cents")
+  paymentInstructions String?           @map("payment_instructions")
+  enabled             Boolean           @default(true)
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  asset      Asset?               @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  agents     AiAgentDeliverable[]
+  deliveries AiDelivery[]
+
+  @@map("ai_deliverables")
+}
+
+/// Itens que cada agente pode oferecer.
+model AiAgentDeliverable {
+  agentId       String   @map("agent_id") @db.Uuid
+  deliverableId String   @map("deliverable_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  agent       AiAgent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  deliverable AiDeliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, deliverableId])
+  @@index([deliverableId])
+  @@map("ai_agent_deliverables")
+}
+
+/// Uma entrega pedida numa conversa. Pagamento só é confirmado por fonte real (administrador ou
+/// aviso assinado de um sistema externo), nunca pela palavra do contato ou do modelo.
+model AiDelivery {
+  id               String           @id @default(uuid()) @db.Uuid
+  conversationId   String           @map("conversation_id") @db.Uuid
+  deliverableId    String?          @map("deliverable_id") @db.Uuid
+  /// Nome e código do item na hora do pedido (o histórico sobrevive à exclusão do item).
+  itemName         String           @map("item_name")
+  itemCode         String           @map("item_code")
+  agentId          String?          @map("agent_id") @db.Uuid
+  inboundMessageId String?          @map("inbound_message_id") @db.Uuid
+  status           AiDeliveryStatus
+  reason           String?
+  /// Mensagem enviada ao contato (quando enviada).
+  messageId        String?          @map("message_id") @db.Uuid
+  decidedBy        String?          @map("decided_by")
+  sentAt           DateTime?        @map("sent_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  deliverable  AiDeliverable? @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  payment      AiPayment?
+
+  @@unique([inboundMessageId, deliverableId])
+  @@index([conversationId, createdAt])
+  @@index([status])
+  @@map("ai_deliveries")
+}
+
+model AiPayment {
+  id          String          @id @default(uuid()) @db.Uuid
+  deliveryId  String          @unique @map("delivery_id") @db.Uuid
+  /// Código que identifica o pagamento (ex.: MZ-7K2QXA); vai nas instruções de pagamento.
+  reference   String          @unique
+  amountCents Int             @map("amount_cents")
+  status      AiPaymentStatus @default(PENDING)
+  /// O contato disse que pagou (apenas um aviso para o administrador conferir).
+  claimedAt   DateTime?       @map("claimed_at")
+  confirmedAt DateTime?       @map("confirmed_at")
+  /// admin | webhook
+  confirmedBy String?         @map("confirmed_by")
+  /// Identificador do pagamento no sistema externo (não confirma dois pagamentos com o mesmo).
+  externalId  String?         @unique @map("external_id")
+  note        String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  delivery AiDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@map("ai_payments")
 }

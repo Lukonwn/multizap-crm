@@ -10,6 +10,7 @@ import {
   buildSearchQuery,
   buildSystemPrompt,
   estimateCost,
+  extractDelivery,
   hitsForDisplay,
   knowledgeForPrompt,
   minorTermInObject,
@@ -956,7 +957,26 @@ export async function aiRoutes(app: FastifyInstance) {
     } catch {
       /* a base de conhecimento nunca impede o teste */
     }
-    const promptCtx = { knowledge: knowledgeForPrompt(hits), knowledgeSearched };
+    // Catálogo de entregáveis do agente: o laboratório só SIMULA (nada é criado nem enviado).
+    const items = await prisma.aiDeliverable.findMany({
+      where: { enabled: true, agents: { some: { agentId: agent.id } } },
+      include: { asset: { select: { storageKey: true } } },
+      orderBy: { name: 'asc' },
+    });
+    const offered = items.filter((i) => i.kind !== 'FILE' || !!i.asset?.storageKey);
+    const promptCtx = {
+      knowledge: knowledgeForPrompt(hits),
+      knowledgeSearched,
+      deliverables: offered.map((i) => ({
+        code: i.code,
+        name: i.name,
+        description: i.description,
+        adultOnly: i.adultOnly,
+        requiresPayment: i.requiresPayment,
+        priceCents: i.priceCents,
+        paymentInstructions: i.paymentInstructions,
+      })),
+    };
     const messages = buildMessages(
       persona,
       { name: spec.agent.name, instructions: spec.agent.instructions },
@@ -999,11 +1019,13 @@ export async function aiRoutes(app: FastifyInstance) {
           latencyMs: result.latencyMs,
         },
       });
+      const parsed = extractDelivery(result.content);
+      const wanted = parsed.code ? offered.find((i) => i.code === parsed.code) : undefined;
       reply = await prisma.aiTestMessage.create({
         data: {
           sessionId: id,
           role: 'assistant',
-          content: result.content,
+          content: parsed.text || (wanted ? 'Certo! Já cuido disso.' : result.content),
           debug: {
             model: result.model,
             promptTokens: result.promptTokens,
@@ -1017,6 +1039,18 @@ export async function aiRoutes(app: FastifyInstance) {
               promptCtx,
             ),
             knowledge: hitsForDisplay(hits),
+            ...(wanted && {
+              delivery: {
+                code: wanted.code,
+                name: wanted.name,
+                condition: wanted.requiresPayment
+                  ? `pago (${wanted.priceCents ? `R$ ${(wanted.priceCents / 100).toFixed(2).replace('.', ',')}` : 'valor a combinar'}): só sai depois de confirmar o pagamento`
+                  : 'gratuito',
+                approval:
+                  wanted.approval === 'AUTO' ? 'envio automático' : 'precisa da sua aprovação',
+                adultOnly: wanted.adultOnly,
+              },
+            }),
           },
         },
       });

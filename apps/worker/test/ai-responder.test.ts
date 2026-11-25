@@ -21,6 +21,7 @@ const truncateAll = async () => {
 let sent: GatewayCommand[];
 let chatCalls: { body: { messages: { role: string; content: string }[] } }[];
 let chatStatus: number;
+let chatContent: string;
 
 const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
   if (String(url).endsWith('/chat/completions')) {
@@ -30,7 +31,7 @@ const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
     return new Response(
       JSON.stringify({
         model: 'openai/gpt-4o-mini',
-        choices: [{ message: { content: 'Olá! Posso ajudar.' }, finish_reason: 'stop' }],
+        choices: [{ message: { content: chatContent }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.0002 },
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -137,6 +138,7 @@ beforeEach(async () => {
   sent = [];
   chatCalls = [];
   chatStatus = 200;
+  chatContent = 'Olá! Posso ajudar.';
 });
 
 describe('MultiZap AI: atendimento', () => {
@@ -283,6 +285,221 @@ describe('MultiZap AI: atendimento', () => {
       await run(c);
       expect(systemPrompt()).not.toContain('Garantia de um ano');
     });
+  });
+
+  describe('entregáveis', () => {
+    const addItem = async (c: Ctx, over: Record<string, unknown> = {}, link = true) => {
+      const asset = await prisma.asset.create({
+        data: {
+          kind: 'FILE',
+          name: 'Guia',
+          storageKey: 'assets/g/original.pdf',
+          mimeType: 'application/pdf',
+        },
+      });
+      const item = await prisma.aiDeliverable.create({
+        data: {
+          code: 'guia-cafe',
+          name: 'Guia de cafés',
+          description: 'PDF com métodos de preparo',
+          kind: 'FILE',
+          assetId: asset.id,
+          approval: 'AUTO',
+          ...over,
+        } as never,
+      });
+      if (link)
+        await prisma.aiAgentDeliverable.create({
+          data: { agentId: c.agentId, deliverableId: item.id },
+        });
+      return item;
+    };
+    const system = () => chatCalls[0]!.body.messages[0]!.content;
+    const outbound = () =>
+      prisma.message.findMany({ where: { direction: 'OUTBOUND' }, orderBy: { createdAt: 'asc' } });
+
+    it('o catálogo vai ao prompt: só itens do agente, ligados e com arquivo disponível', async () => {
+      const c = await setup('REVIEW', 'Oi, tem algum material?');
+      await addItem(c);
+      await addItem(c, { code: 'desligado', name: 'Desligado', enabled: false });
+      await addItem(c, { code: 'sem-vinculo', name: 'Sem vínculo' }, false);
+      await addItem(c, { code: 'sem-arquivo', name: 'Sem arquivo', assetId: null });
+      await run(c);
+      expect(system()).toContain('[guia-cafe] Guia de cafés');
+      expect(system()).toContain('[[ENTREGAR:codigo]]');
+      for (const no of ['desligado', 'sem-vinculo', 'sem-arquivo'])
+        expect(system()).not.toContain(`[${no}]`);
+    });
+
+    it('item gratuito automático: o marcador sai do texto e o gateway recebe a entrega (depois da resposta)', async () => {
+      const c = await setup('AUTO', 'Quero o guia de cafés');
+      const item = await addItem(c);
+      chatContent = 'Claro! Segue o guia. [[ENTREGAR:guia-cafe]]';
+      expect(await run(c)).toEqual({ status: 'sent' });
+      const out = await outbound();
+      expect(out).toHaveLength(1);
+      expect(out[0]!.body).toBe('Claro! Segue o guia.');
+      expect(JSON.stringify(await prisma.aiDraft.findMany())).not.toContain('ENTREGAR');
+      const d = await prisma.aiDelivery.findFirstOrThrow();
+      expect(d).toMatchObject({
+        status: 'QUEUED',
+        itemCode: 'guia-cafe',
+        deliverableId: item.id,
+        agentId: c.agentId,
+      });
+      expect(sent.map((x) => x.type)).toEqual([
+        'send-presence',
+        'send-presence',
+        'send-reply',
+        'send-delivery',
+      ]);
+      expect(sent.at(-1)).toMatchObject({ type: 'send-delivery', deliveryId: d.id });
+    });
+
+    it('item pago: manda o código do pedido e NADA é entregue (sem comando de envio)', async () => {
+      const c = await setup('AUTO', 'Quero o guia');
+      await addItem(c, {
+        requiresPayment: true,
+        priceCents: 4990,
+        paymentInstructions: 'Pix 11 99999-0000',
+      });
+      chatContent = 'O guia custa R$ 49,90. Pague por Pix e eu envio. [[ENTREGAR:guia-cafe]]';
+      await run(c);
+      const d = await prisma.aiDelivery.findFirstOrThrow({ include: { payment: true } });
+      expect(d.status).toBe('AWAITING_PAYMENT');
+      expect(d.payment).toMatchObject({ status: 'PENDING', amountCents: 4990 });
+      const out = await outbound();
+      expect(out).toHaveLength(2);
+      expect(out[0]!.body).toBe('O guia custa R$ 49,90. Pague por Pix e eu envio.');
+      expect(out[1]!.body).toBe(
+        `Código do pedido: ${d.payment!.reference} (R$ 49,90). Informe este código ao pagar. Assim que o pagamento for confirmado, envio o item.`,
+      );
+      expect(sent.map((x) => x.type)).not.toContain('send-delivery');
+      expect(sent.filter((x) => x.type === 'send-reply')).toHaveLength(2);
+    });
+
+    it('aprovação manual: espera o administrador e avisa', async () => {
+      const c = await setup('AUTO', 'Quero o guia');
+      await addItem(c, { approval: 'MANUAL' });
+      chatContent = 'Combinado! [[ENTREGAR:guia-cafe]]';
+      await run(c);
+      expect((await prisma.aiDelivery.findFirstOrThrow()).status).toBe('AWAITING_APPROVAL');
+      expect(sent.map((x) => x.type)).not.toContain('send-delivery');
+      expect((await prisma.systemNotification.findFirstOrThrow()).title).toBe(
+        'Entrega aguardando aprovação',
+      );
+    });
+
+    it('modo revisão: o rascunho guarda o item, sem o marcador, e nenhuma entrega nasce antes de aprovar', async () => {
+      const c = await setup('REVIEW', 'Quero o guia');
+      const item = await addItem(c);
+      chatContent = 'Segue o guia! [[ENTREGAR:guia-cafe]]';
+      expect(await run(c)).toEqual({ status: 'drafted' });
+      const d = await prisma.aiDraft.findFirstOrThrow();
+      expect(d).toMatchObject({ body: 'Segue o guia!', deliverableId: item.id, status: 'PENDING' });
+      expect(await prisma.aiDelivery.count()).toBe(0);
+      expect(sent).toEqual([]);
+    });
+
+    it('código desconhecido ou de item não ligado ao agente: o marcador some e nada é entregue', async () => {
+      const c = await setup('AUTO', 'Quero algo');
+      await addItem(c, { code: 'sem-vinculo' }, false);
+      for (const code of ['nao-existe', 'sem-vinculo']) {
+        chatContent = `Certo! [[ENTREGAR:${code}]]`;
+        await truncateMessagesAndRun(c);
+      }
+      expect(await prisma.aiDelivery.count()).toBe(0);
+      expect((await outbound()).every((m) => !m.body!.includes('ENTREGAR'))).toBe(true);
+    });
+
+    it('resposta só com o marcador usa um texto neutro', async () => {
+      const c = await setup('AUTO', 'Quero o guia');
+      await addItem(c);
+      chatContent = '[[ENTREGAR:guia-cafe]]';
+      await run(c);
+      expect((await outbound())[0]!.body).toBe('Certo! Já cuido disso.');
+    });
+
+    it('item adulto sem a pergunta de 18 anos confirmada: a resposta sai, a entrega é bloqueada e registrada', async () => {
+      const c = await setup('AUTO', 'Quero o conteúdo');
+      await addItem(c, { adultOnly: true });
+      chatContent = 'Claro! [[ENTREGAR:guia-cafe]]';
+      await run(c);
+      const d = await prisma.aiDelivery.findFirstOrThrow();
+      expect(d.status).toBe('BLOCKED');
+      expect(d.reason).toMatch(/18 anos/);
+      expect(sent.map((x) => x.type)).not.toContain('send-delivery');
+      expect(await prisma.aiAgentEvent.count({ where: { category: 'DELIVERY' } })).toBe(1);
+    });
+
+    it('"já paguei" só avisa o administrador: nada é liberado e o pagamento segue pendente', async () => {
+      const c = await setup('AUTO', 'Quero o guia');
+      await addItem(c, { requiresPayment: true, priceCents: 4990, paymentInstructions: 'Pix' });
+      chatContent = 'Pague por Pix. [[ENTREGAR:guia-cafe]]';
+      await run(c);
+      const claim = await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: 'in-pago',
+          direction: 'INBOUND',
+          type: 'text',
+          body: 'Já paguei! Fiz o pix agora',
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() + 10_000),
+        },
+      });
+      chatContent = 'Vou conferir o pagamento e já te aviso.';
+      await run({ ...c, messageId: claim.id });
+      const pay = await prisma.aiPayment.findFirstOrThrow({ include: { delivery: true } });
+      expect(pay.status).toBe('PENDING');
+      expect(pay.claimedAt).not.toBeNull();
+      expect(pay.delivery.status).toBe('AWAITING_PAYMENT');
+      const n = await prisma.systemNotification.findFirstOrThrow({
+        where: { title: 'Contato diz que pagou' },
+      });
+      expect(n.message).toContain(pay.reference);
+      expect(sent.map((x) => x.type)).not.toContain('send-delivery');
+    });
+
+    it('pedido repetido do mesmo item não duplica entrega nem pagamento', async () => {
+      const c = await setup('AUTO', 'Quero o guia');
+      await addItem(c, { requiresPayment: true, priceCents: 4990, paymentInstructions: 'Pix' });
+      chatContent = 'Pague por Pix. [[ENTREGAR:guia-cafe]]';
+      await run(c);
+      const again = await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: 'in-2',
+          direction: 'INBOUND',
+          type: 'text',
+          body: 'e então, como pago?',
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() + 10_000),
+        },
+      });
+      await run({ ...c, messageId: again.id });
+      expect(await prisma.aiDelivery.count()).toBe(1);
+      expect(await prisma.aiPayment.count()).toBe(1);
+    });
+
+    async function truncateMessagesAndRun(c: Ctx) {
+      // nova mensagem do contato para cada rodada
+      const m = await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: `in-${randomBytes(3).toString('hex')}`,
+          direction: 'INBOUND',
+          type: 'text',
+          body: 'quero',
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() + 5_000 + Math.floor(Math.random() * 1000)),
+        },
+      });
+      await run({ ...c, messageId: m.id });
+    }
   });
 
   describe('proteção de menor de idade', () => {

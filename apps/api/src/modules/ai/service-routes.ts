@@ -14,6 +14,7 @@ import { AppError, Errors } from '../../lib/errors';
 import { parse } from '../../lib/validate';
 import { audit } from '../audit/service';
 import { convInclude, replyPermissionFor } from '../inbox/routes';
+import { requestDelivery, resolveNotifications } from '@multizap/database';
 
 const uuid = z.string().uuid('Identificador inválido.');
 const idParams = z.object({ id: uuid });
@@ -76,6 +77,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
           '.',
       );
     const updated = await prisma.aiAgent.update({ where: { id }, data: { status: 'ACTIVE' } });
+    await resolveNotifications(prisma, `ai-agent-error:${id}`);
     await event(id, 'AGENT', 'info', 'Agente ativado.');
     await audit(prisma, req, {
       action: 'ai.agent_activated',
@@ -112,7 +114,9 @@ export async function aiServiceRoutes(app: FastifyInstance) {
   const toDraftDTO = (
     d: Prisma.AiDraftGetPayload<{ include: typeof draftInclude }>,
     inboundText: string | null,
+    deliverableName: string | null = null,
   ): AiDraftDTO => ({
+    deliverableName,
     id: d.id,
     conversationId: d.conversationId,
     agentId: d.agentId,
@@ -134,7 +138,22 @@ export async function aiServiceRoutes(app: FastifyInstance) {
       select: { id: true, body: true },
     });
     const byId = new Map(msgs.map((m) => [m.id, m.body]));
-    return rows.map((r) => toDraftDTO(r, byId.get(r.inboundMessageId) ?? null));
+    const ids = [...new Set(rows.map((r) => r.deliverableId).filter((x): x is string => !!x))];
+    const names = new Map(
+      (
+        await prisma.aiDeliverable.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true },
+        })
+      ).map((d) => [d.id, d.name]),
+    );
+    return rows.map((r) =>
+      toDraftDTO(
+        r,
+        byId.get(r.inboundMessageId) ?? null,
+        r.deliverableId ? (names.get(r.deliverableId) ?? null) : null,
+      ),
+    );
   };
 
   app.get('/ai/drafts', auth, async (req) => {
@@ -214,6 +233,51 @@ export async function aiServiceRoutes(app: FastifyInstance) {
     });
     await prisma.conversation.update({ where: { id: conv.id }, data: { unreadCount: 0 } });
     await app.gateway.send({ type: 'send-reply', accountId: conv.accountId, messageId: m.id });
+
+    // O agente quis entregar um item junto com esta resposta: a entrega nasce agora que o
+    // administrador aprovou. Item pago: manda o código do pedido; nada sai antes do pagamento.
+    let delivery: { id: string; status: string } | null = null;
+    if (draft.deliverableId) {
+      try {
+        const r = await requestDelivery(prisma, {
+          conversationId: conv.id,
+          deliverableId: draft.deliverableId,
+          agentId: draft.agentId,
+          inboundMessageId: draft.inboundMessageId,
+        });
+        delivery = { id: r.delivery.id, status: r.delivery.status };
+        if (r.created && r.payment) {
+          const price = (r.payment.amountCents / 100).toFixed(2).replace('.', ',');
+          const code = await prisma.message.create({
+            data: {
+              accountId: conv.accountId,
+              conversationId: conv.id,
+              providerMessageId: `pending:${randomUUID()}`,
+              direction: 'OUTBOUND',
+              type: 'text',
+              body: `Código do pedido: ${r.payment.reference} (R$ ${price}). Informe este código ao pagar. Assim que o pagamento for confirmado, envio o item.`,
+              status: 'PENDING',
+              sentAt: new Date(),
+              aiLink: { create: { agentId: draft.agentId, source: 'review' } },
+            },
+          });
+          await app.gateway.send({
+            type: 'send-reply',
+            accountId: conv.accountId,
+            messageId: code.id,
+          });
+        }
+        if (r.dispatch)
+          await app.gateway.send({
+            type: 'send-delivery',
+            accountId: conv.accountId,
+            deliveryId: r.delivery.id,
+          });
+      } catch {
+        // O item foi apagado ou desligado depois do rascunho: a resposta já foi, a entrega não nasce.
+        delivery = null;
+      }
+    }
     await audit(prisma, req, {
       action: 'ai.draft_approved',
       actorId: actor(req).id,
@@ -223,7 +287,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
       details: { edited: body !== draft.body },
     });
     reply.code(202);
-    return { messageId: m.id };
+    return { messageId: m.id, delivery };
   });
 
   app.post('/ai/drafts/:id/discard', auth, async (req) => {

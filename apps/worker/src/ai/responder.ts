@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@multizap/database';
-import { hasKnowledge, isOperationsPaused, notify, searchKnowledge } from '@multizap/database';
+import {
+  hasKnowledge,
+  isOperationsPaused,
+  notify,
+  requestDelivery,
+  searchKnowledge,
+} from '@multizap/database';
 import {
   AGE_GATE_QUESTION,
   KNOWLEDGE_LIMITS,
@@ -12,9 +18,11 @@ import {
   buildSystemPrompt,
   detectMinorInMessages,
   estimateCost,
+  extractDelivery,
   hitsForDisplay,
   knowledgeForPrompt,
   parseAgeAnswer,
+  type DeliverableSpec,
   type KnowledgeHit,
   type ChatMessage,
   type ModelInfo,
@@ -289,6 +297,25 @@ export class AiResponder {
       this.log('Busca na base de conhecimento falhou', { agentId: agent.id, err: String(err) });
     }
     const sources = hitsForDisplay(hits);
+
+    // Entregáveis do agente (ligados, ligados e com arquivo disponível) e aviso de pagamento declarado.
+    const items = await prisma.aiDeliverable.findMany({
+      where: { enabled: true, agents: { some: { agentId: agent.id } } },
+      include: { asset: { select: { storageKey: true } } },
+      orderBy: { name: 'asc' },
+    });
+    const offered = items.filter((i) => i.kind !== 'FILE' || !!i.asset?.storageKey);
+    const catalog: DeliverableSpec[] = offered.map((i) => ({
+      code: i.code,
+      name: i.name,
+      description: i.description,
+      adultOnly: i.adultOnly,
+      requiresPayment: i.requiresPayment,
+      priceCents: i.priceCents,
+      paymentInstructions: i.paymentInstructions,
+    }));
+    await this.noteClaimedPayment(conv, text);
+
     const messages = buildMessages(
       spec.persona,
       { name: spec.agent.name, instructions: spec.agent.instructions },
@@ -298,6 +325,7 @@ export class AiResponder {
         contactName: conv.contact?.name ?? conv.title,
         knowledge: knowledgeForPrompt(hits),
         knowledgeSearched,
+        deliverables: catalog,
       },
     );
 
@@ -328,7 +356,10 @@ export class AiResponder {
       client,
     );
 
-    const reply = result.content.trim();
+    // O marcador [[ENTREGAR:codigo]] nunca chega ao contato: sai do texto e vira um pedido de entrega.
+    const parsed = extractDelivery(result.content);
+    const wanted = parsed.code ? offered.find((i) => i.code === parsed.code) : undefined;
+    const reply = parsed.text || (wanted ? 'Certo! Já cuido disso.' : '');
     if (!reply) return skip('O modelo devolveu uma resposta vazia');
 
     if (!auto) {
@@ -341,6 +372,7 @@ export class AiResponder {
             inboundMessageId: msg.id,
             body: reply,
             sources,
+            deliverableId: wanted?.id ?? null,
           },
         });
       } catch (err) {
@@ -438,6 +470,11 @@ export class AiResponder {
       messageId: sentMessageId,
     });
 
+    if (wanted)
+      await this.startDelivery(conv, agent, msg.id, wanted.id).catch((err) =>
+        this.log('Entrega não registrada', { conversationId: conv.id, err: String(err) }),
+      );
+
     await this.updateMemory(agent.id, conv.id, conv.accountId, spec, client).catch((err) =>
       this.log('Memória não atualizada', { conversationId: conv.id, err: String(err) }),
     );
@@ -445,6 +482,123 @@ export class AiResponder {
   }
 
   // ─── apoio ──────────────────────────────────────────────────────────────
+
+  /**
+   * O agente pediu um item: registra a entrega (as regras e o pagamento são decididos em
+   * `requestDelivery`). Item pago: manda o código do pedido ao contato e NADA é entregue até o
+   * pagamento ser confirmado por fonte real. Item gratuito de aprovação automática vai direto
+   * para o envio; de aprovação manual, avisa o administrador.
+   */
+  private async startDelivery(
+    conv: { id: string; accountId: string; title: string | null; phoneE164: string | null },
+    agent: { id: string },
+    inboundMessageId: string,
+    deliverableId: string,
+  ) {
+    const r = await requestDelivery(this.prisma, {
+      conversationId: conv.id,
+      deliverableId,
+      agentId: agent.id,
+      inboundMessageId,
+    });
+    if (!r.created) return;
+    const who = conv.title ?? conv.phoneE164 ?? 'contato';
+    if (r.delivery.status === 'BLOCKED') {
+      await this.event(
+        agent.id,
+        'DELIVERY',
+        'warn',
+        `Entrega bloqueada (${r.delivery.itemName}): ${r.delivery.reason}`,
+        {
+          conversationId: conv.id,
+        },
+      );
+      return;
+    }
+    if (r.payment) {
+      const price = (r.payment.amountCents / 100).toFixed(2).replace('.', ',');
+      await this.emitPlain(
+        conv,
+        agent,
+        `Código do pedido: ${r.payment.reference} (R$ ${price}). Informe este código ao pagar. Assim que o pagamento for confirmado, envio o item.`,
+      );
+    }
+    if (r.delivery.status === 'AWAITING_APPROVAL')
+      await notify(this.prisma, {
+        severity: 'INFO',
+        category: 'PROCESSING',
+        title: 'Entrega aguardando aprovação',
+        message: `${r.delivery.itemName} para ${who}. Aprove em MultiZap AI → Atendimentos.`,
+        accountId: conv.accountId,
+        dedupeKey: `ai-delivery-approval:${r.delivery.id}`,
+      });
+    if (r.dispatch)
+      await this.deps.gateway.send({
+        type: 'send-delivery',
+        accountId: conv.accountId,
+        deliveryId: r.delivery.id,
+      });
+  }
+
+  /** Mensagem de sistema ao contato (sem rascunho): enviada pelo mesmo caminho das respostas. */
+  private async emitPlain(
+    conv: { id: string; accountId: string },
+    agent: { id: string },
+    body: string,
+  ) {
+    const m = await this.prisma.$transaction(async (tx) => {
+      const msg = await tx.message.create({
+        data: {
+          accountId: conv.accountId,
+          conversationId: conv.id,
+          providerMessageId: `pending:${randomUUID()}`,
+          direction: 'OUTBOUND',
+          type: 'text',
+          body,
+          status: 'PENDING',
+          sentAt: new Date(this.now()),
+        },
+      });
+      await tx.aiMessageLink.create({
+        data: { messageId: msg.id, agentId: agent.id, source: 'auto' },
+      });
+      return msg;
+    });
+    await this.deps.gateway.send({
+      type: 'send-reply',
+      accountId: conv.accountId,
+      messageId: m.id,
+    });
+  }
+
+  /**
+   * O contato disse que pagou: é só um aviso para o administrador conferir. NADA é liberado por
+   * isso: o pagamento só é confirmado por fonte real (administrador ou aviso assinado).
+   */
+  private async noteClaimedPayment(
+    conv: { id: string; accountId: string; title: string | null; phoneE164: string | null },
+    text: string,
+  ) {
+    if (!PAID_CLAIM.test(text)) return;
+    const pending = await this.prisma.aiPayment.findMany({
+      where: { status: 'PENDING', claimedAt: null, delivery: { conversationId: conv.id } },
+      include: { delivery: { select: { itemName: true } } },
+    });
+    for (const p of pending) {
+      await this.prisma.aiPayment.update({
+        where: { id: p.id },
+        data: { claimedAt: new Date(this.now()) },
+      });
+      await notify(this.prisma, {
+        severity: 'WARNING',
+        category: 'PROCESSING',
+        title: 'Contato diz que pagou',
+        message: `${conv.title ?? conv.phoneE164 ?? 'Contato'} disse que pagou "${p.delivery.itemName}" (código ${p.reference}). Confira no seu banco e confirme em Atendimentos.`,
+        accountId: conv.accountId,
+        dedupeKey: `ai-pay-claim:${p.id}`,
+      });
+    }
+  }
 
   /**
    * Sinal de menor de idade: pausa a IA nesta conversa (só o administrador libera), avisa o
@@ -644,6 +798,13 @@ export class AiResponder {
         'error',
         'Agente parado por erro da OpenRouter. Corrija e ative novamente.',
       );
+      await notify(this.prisma, {
+        severity: 'ERROR',
+        category: 'INTEGRATION',
+        title: 'IA parada por erro da OpenRouter',
+        message: `${err.message} O agente foi parado: corrija a chave ou os créditos e ative de novo em MultiZap AI.`,
+        dedupeKey: `ai-agent-error:${agentId}`,
+      });
     }
     await this.note(conversationId, `Falha da OpenRouter: ${err.message}`);
     return { status: 'failed', reason: err.code };
@@ -798,7 +959,7 @@ export class AiResponder {
   /** Eventos do agente; o mesmo aviso repetido em 10 minutos não vira outro evento. */
   private async event(
     agentId: string,
-    category: 'OPENROUTER' | 'AGENT' | 'WHATSAPP',
+    category: 'OPENROUTER' | 'AGENT' | 'WHATSAPP' | 'KNOWLEDGE' | 'DELIVERY',
     level: 'info' | 'warn' | 'error',
     message: string,
     details?: Record<string, unknown>,
@@ -813,6 +974,10 @@ export class AiResponder {
     });
   }
 }
+
+/** O contato afirma que já pagou (só um aviso: nunca libera nada). */
+const PAID_CLAIM =
+  /\b(j[aá]\s+(paguei|pago|fiz\s+o\s+pix|fiz\s+a\s+transfer[eê]ncia|transferi|depositei)|pix\s+(feito|enviado|realizado)|comprovante)\b/i;
 
 const isUnique = (err: unknown) =>
   typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002';

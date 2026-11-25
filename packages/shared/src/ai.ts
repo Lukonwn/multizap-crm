@@ -291,6 +291,14 @@ export interface TestMessageDTO {
     errorCode?: string;
     /** Trechos da base de conhecimento usados nesta resposta. */
     knowledge?: AiKnowledgeUsedDTO[];
+    /** O agente quis entregar este item (simulação: nada foi criado nem enviado). */
+    delivery?: {
+      code: string;
+      name: string;
+      condition: string;
+      approval: string;
+      adultOnly: boolean;
+    };
   };
 }
 
@@ -314,6 +322,8 @@ export interface AiDraftDTO {
   autoSent: boolean;
   /** Trechos da base de conhecimento em que a resposta se baseou. */
   sources: AiKnowledgeUsedDTO[];
+  /** Item que o agente quer entregar junto (a entrega nasce quando o rascunho é aprovado). */
+  deliverableName: string | null;
   /** Mensagem do contato que originou a resposta. */
   inboundText: string | null;
   createdAt: string;
@@ -458,4 +468,260 @@ export interface AiGenerationDTO {
   costConfirmed: boolean;
   appliedAt: string | null;
   createdAt: string;
+}
+
+// ─── Entregáveis ────────────────────────────────────────────────────────────
+
+export const DELIVERABLE_KINDS = ['FILE', 'TEXT', 'LINK'] as const;
+export const DELIVERABLE_KIND_LABEL: Record<(typeof DELIVERABLE_KINDS)[number], string> = {
+  FILE: 'Arquivo da biblioteca',
+  TEXT: 'Texto',
+  LINK: 'Link',
+};
+export const DELIVERY_STATUS_LABEL: Record<string, string> = {
+  AWAITING_PAYMENT: 'Aguardando pagamento',
+  AWAITING_APPROVAL: 'Aguardando sua aprovação',
+  QUEUED: 'Na fila de envio',
+  SENDING: 'Enviando',
+  SENT: 'Enviada',
+  FAILED: 'Falhou',
+  BLOCKED: 'Bloqueada',
+  CANCELED: 'Cancelada',
+};
+
+/** "R$ 49,90" a partir de centavos. */
+export const formatBRL = (cents: number) =>
+  `R$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const deliverableBase = z.object({
+  name: z.string().trim().min(2, 'Informe um nome com ao menos 2 caracteres.').max(120),
+  /** Código que o agente usa para entregar (letras minúsculas, números, - e _). Vazio = gerado do nome. */
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9_-]{2,39}$/, 'Use de 3 a 40 letras minúsculas, números, - ou _.')
+    .optional(),
+  description: text(600),
+  kind: z.enum(DELIVERABLE_KINDS),
+  assetId: z.string().uuid().optional().nullable(),
+  text: text(4000),
+  adultOnly: z.boolean().default(false),
+  approval: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
+  requiresPayment: z.boolean().default(false),
+  priceCents: z.coerce
+    .number()
+    .int()
+    .min(100, 'O preço mínimo é R$ 1,00.')
+    .max(10_000_000)
+    .optional()
+    .nullable(),
+  paymentInstructions: text(1000),
+  enabled: z.boolean().default(true),
+});
+
+/** Regras que dependem de mais de um campo (valem no cadastro e na edição já mesclada). */
+export function checkDeliverable(
+  v: {
+    kind: (typeof DELIVERABLE_KINDS)[number];
+    assetId?: string | null;
+    text?: string | null;
+    requiresPayment: boolean;
+    priceCents?: number | null;
+    paymentInstructions?: string | null;
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (v.kind === 'FILE' && !v.assetId)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['assetId'],
+      message: 'Escolha um arquivo da biblioteca.',
+    });
+  if (v.kind === 'TEXT' && !v.text)
+    ctx.addIssue({ code: 'custom', path: ['text'], message: 'Escreva o texto a entregar.' });
+  if (v.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(v.text ?? ''))
+    ctx.addIssue({
+      code: 'custom',
+      path: ['text'],
+      message: 'Informe o link completo, começando com http:// ou https://.',
+    });
+  if (v.requiresPayment && !v.priceCents)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['priceCents'],
+      message: 'Informe o preço do item pago.',
+    });
+  if (v.requiresPayment && !v.paymentInstructions)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['paymentInstructions'],
+      message: 'Explique como pagar (ex.: chave Pix). O agente repassa ao contato.',
+    });
+}
+export const deliverableInputSchema = deliverableBase.superRefine(checkDeliverable);
+export type DeliverableInput = z.input<typeof deliverableInputSchema>;
+export const deliverableUpdateSchema = deliverableBase.partial();
+
+export interface AiDeliverableDTO {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  kind: (typeof DELIVERABLE_KINDS)[number];
+  assetId: string | null;
+  assetName: string | null;
+  assetMime: string | null;
+  text: string | null;
+  adultOnly: boolean;
+  approval: 'AUTO' | 'MANUAL';
+  requiresPayment: boolean;
+  priceCents: number | null;
+  paymentInstructions: string | null;
+  enabled: boolean;
+  /** FILE sem arquivo disponível (apagado da biblioteca): não pode ser entregue. */
+  unavailable: boolean;
+  agents: { id: string; name: string }[];
+  deliveryCount: number;
+  createdAt: string;
+}
+
+export interface AiPaymentDTO {
+  reference: string;
+  amountCents: number;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELED';
+  claimedAt: string | null;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+}
+
+export interface AiDeliveryDTO {
+  id: string;
+  conversationId: string;
+  itemName: string;
+  itemCode: string;
+  status: keyof typeof DELIVERY_STATUS_LABEL;
+  reason: string | null;
+  payment: AiPaymentDTO | null;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface AiPaymentWebhookDTO {
+  configured: boolean;
+  keyLast4: string | null;
+  /** Caminho do aviso (o endereço completo é o do painel + este caminho). */
+  path: string;
+  canStoreKey: boolean;
+}
+
+export const PAYMENT_WEBHOOK_PATH = '/api/webhooks/ai-payments';
+
+// ─── Métricas e monitoramento ───────────────────────────────────────────────
+
+export interface AiUsageTotals {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number | null;
+}
+
+export interface AiAnalyticsDTO {
+  days: number;
+  from: string;
+  to: string;
+  totals: {
+    /** Conversas em que a IA respondeu (ou sugeriu resposta) no período. */
+    conversations: number;
+    /** Respostas da IA: enviadas sozinhas + rascunhos (aprovados, descartados e pendentes). */
+    replies: number;
+    autoSent: number;
+    approved: number;
+    discarded: number;
+    pending: number;
+    /** Aprovados / (aprovados + descartados). Null sem decisões. */
+    approvalRate: number | null;
+    /** Dos aprovados, quantos foram editados antes de enviar. */
+    editedRate: number | null;
+    /** Respostas que usaram a base de conhecimento. */
+    knowledgeUseRate: number | null;
+    /** Do recebimento da mensagem até a resposta automática sair. */
+    responseSeconds: { median: number | null; p90: number | null };
+    /** Do rascunho pronto até a aprovação. */
+    reviewSeconds: { median: number | null };
+    /** Conversas pausadas no período, por motivo (human, admin, minor, ...). */
+    paused: Record<string, number>;
+  };
+  usage: { live: AiUsageTotals; test: AiUsageTotals; generator: AiUsageTotals };
+  /** Custo do atendimento real dividido pelas respostas. */
+  costPerReply: number | null;
+  perAgent: {
+    agentId: string;
+    name: string;
+    replies: number;
+    promptTokens: number;
+    completionTokens: number;
+    costUsd: number | null;
+  }[];
+  topSources: { name: string; uses: number }[];
+  deliveries: {
+    byStatus: Record<string, number>;
+    payments: { created: number; confirmed: number; revenueCents: number };
+    /** Pagamentos confirmados / criados. Null sem pagamentos. */
+    conversion: number | null;
+  };
+  daily: { date: string; replies: number; autoSent: number; costUsd: number; deliveries: number }[];
+}
+
+export interface AiHealthAlert {
+  level: 'warning' | 'error';
+  text: string;
+  /** Caminho do painel onde resolver. */
+  href?: string;
+}
+
+export interface AiHealthDTO {
+  alerts: AiHealthAlert[];
+  agents: {
+    id: string;
+    name: string;
+    status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ERROR';
+    mode: 'REVIEW' | 'AUTO';
+    accounts: number;
+    pendingDrafts: number;
+    lastError: { message: string; at: string } | null;
+  }[];
+  key: {
+    configured: boolean;
+    lastTestOk: boolean | null;
+    lastTestAt: string | null;
+    usageUsd: number | null;
+    limitUsd: number | null;
+    remainingUsd: number | null;
+  };
+  services: { worker: boolean; gateway: boolean };
+  queues: {
+    name: string;
+    label: string;
+    waiting: number;
+    active: number;
+    delayed: number;
+    failed: number;
+  }[];
+  events: {
+    id: string;
+    agentName: string | null;
+    category: string;
+    level: string;
+    message: string;
+    createdAt: string;
+  }[];
+  issues: {
+    sourcesWithError: number;
+    sourcesStuck: number;
+    deliveriesFailed7d: number;
+    deliveriesBlocked7d: number;
+    paymentsClaimed: number;
+    minorLocksOpen: number;
+  };
 }

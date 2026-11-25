@@ -4,6 +4,7 @@ import makeWASocket, {
   isLidUser,
   isPnUser,
   makeCacheableSignalKeyStore,
+  type AnyMessageContent,
   type Contact,
   type LIDMapping,
   type WAMessage,
@@ -14,6 +15,7 @@ import type {
   ConnectionFactory,
   IdentityUpdate,
   IncomingMessage,
+  OutgoingMessage,
   WaConnection,
 } from '../session/types';
 import type { DbAuthStore } from './auth-store';
@@ -213,10 +215,12 @@ export class BaileysFactory implements ConnectionFactory {
       },
       logout: () => sock.logout(),
       sendMessage: async (jid, m) => {
-        const content = m.image
-          ? { image: m.image, mimetype: m.mimetype, caption: m.text }
-          : { text: m.text };
-        const sent = await sock.sendMessage(jid, content);
+        const content = m.media
+          ? mediaContent(m.media, m.text)
+          : m.image
+            ? { image: m.image, mimetype: m.mimetype, caption: m.text }
+            : { text: m.text };
+        const sent = await sock.sendMessage(jid, content as AnyMessageContent);
         if (!sent?.key?.id) throw new Error('O WhatsApp não confirmou o envio.');
         return {
           id: sent.key.id,
@@ -224,5 +228,28 @@ export class BaileysFactory implements ConnectionFactory {
         };
       },
     };
+  }
+}
+
+/** Conteúdo do Baileys para cada tipo de mídia (áudio não aceita legenda). */
+function mediaContent(
+  media: NonNullable<OutgoingMessage['media']>,
+  caption: string,
+): Record<string, unknown> {
+  const cap = caption ? { caption } : {};
+  switch (media.kind) {
+    case 'image':
+      return { image: media.data, mimetype: media.mimetype, ...cap };
+    case 'video':
+      return { video: media.data, mimetype: media.mimetype, ...cap };
+    case 'audio':
+      return { audio: media.data, mimetype: media.mimetype, ptt: false };
+    default:
+      return {
+        document: media.data,
+        mimetype: media.mimetype,
+        fileName: media.fileName ?? 'arquivo',
+        ...cap,
+      };
   }
 }

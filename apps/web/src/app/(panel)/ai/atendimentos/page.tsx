@@ -1,7 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Bot, Check, MessageSquare, Pause, Play, RotateCcw, Trash2, UserRound } from 'lucide-react';
-import { formatPhone, type AiConversationDTO, type AiConversationState } from '@multizap/shared';
+import {
+  DELIVERY_STATUS_LABEL,
+  formatBRL,
+  formatPhone,
+  type AiConversationDTO,
+  type AiConversationState,
+  type AiDeliveryDTO,
+} from '@multizap/shared';
 import {
   Alert,
   Badge,
@@ -17,7 +24,7 @@ import {
 import { useAccounts } from '@/lib/accounts';
 import { formatDateTime, timeAgo } from '@/lib/format';
 import { useMessages } from '@/lib/inbox';
-import { useAiConversations, useAiDrafts, useAiMutation } from '@/lib/ai';
+import { useAiConversations, useAiDrafts, useAiMutation, useDeliveries } from '@/lib/ai';
 import { Textarea } from '@/components/ai/textarea';
 
 const FILTERS = [
@@ -69,6 +76,105 @@ function Thread({ conversationId }: { conversationId: string }) {
   );
 }
 
+const DELIVERY_TONE: Record<string, Tone> = {
+  AWAITING_PAYMENT: 'warning',
+  AWAITING_APPROVAL: 'warning',
+  QUEUED: 'info',
+  SENDING: 'info',
+  SENT: 'success',
+  FAILED: 'danger',
+  BLOCKED: 'danger',
+  CANCELED: 'neutral',
+};
+
+function DeliveryRow({ d }: { d: AiDeliveryDTO }) {
+  const act = useAiMutation();
+  const run = (action: string, json?: object) =>
+    act.mutate({ path: `/ai/deliveries/${d.id}/${action}`, json });
+  return (
+    <li className="space-y-2 rounded-lg border border-border p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium text-fg">{d.itemName}</span>
+        <Badge tone={DELIVERY_TONE[d.status] ?? 'neutral'}>{DELIVERY_STATUS_LABEL[d.status]}</Badge>
+      </div>
+      {d.reason && <p className="text-xs text-muted">{d.reason}</p>}
+      {d.payment && (
+        <p className="text-xs text-muted">
+          Pedido <code className="text-fg">{d.payment.reference}</code> ·{' '}
+          {formatBRL(d.payment.amountCents)} ·{' '}
+          {d.payment.status === 'CONFIRMED'
+            ? `pago (${d.payment.confirmedBy === 'webhook' ? 'aviso do sistema de pagamento' : 'confirmado por você'})`
+            : d.payment.status === 'CANCELED'
+              ? 'cancelado'
+              : 'aguardando pagamento'}
+          {d.payment.claimedAt && d.payment.status === 'PENDING' && (
+            <strong className="text-warning">
+              {' '}
+              · o contato diz que pagou: confira no seu banco
+            </strong>
+          )}
+        </p>
+      )}
+      {act.error && <Alert tone="danger">{(act.error as Error).message}</Alert>}
+      <div className="flex flex-wrap gap-2">
+        {d.status === 'AWAITING_PAYMENT' && d.payment?.status === 'PENDING' && (
+          <Button
+            size="sm"
+            loading={act.isPending}
+            onClick={() => {
+              if (
+                !window.confirm(
+                  `Confirme que você conferiu na SUA fonte (banco, maquininha, plataforma) que o pagamento do pedido ${d.payment!.reference} (${formatBRL(d.payment!.amountCents)}) chegou. O que o contato diz não conta.`,
+                )
+              )
+                return;
+              run('confirm-payment');
+            }}
+          >
+            Confirmar pagamento
+          </Button>
+        )}
+        {d.status === 'AWAITING_APPROVAL' && (
+          <Button size="sm" loading={act.isPending} onClick={() => run('approve')}>
+            Aprovar e enviar
+          </Button>
+        )}
+        {d.status === 'FAILED' && (
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={act.isPending}
+            onClick={() => run('retry')}
+          >
+            Tentar de novo
+          </Button>
+        )}
+        {['AWAITING_PAYMENT', 'AWAITING_APPROVAL', 'QUEUED', 'FAILED'].includes(d.status) && (
+          <Button size="sm" variant="ghost" loading={act.isPending} onClick={() => run('cancel')}>
+            Cancelar entrega
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function DeliveriesBox({ conversationId }: { conversationId: string }) {
+  const deliveries = useDeliveries(conversationId);
+  const items = deliveries.data ?? [];
+  if (!items.length) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-muted">Entregas desta conversa</p>
+      <ul className="space-y-2">
+        {items.map((d) => (
+          <DeliveryRow key={d.id} d={d} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DraftBox({ conversationId }: { conversationId: string }) {
   const drafts = useAiDrafts(conversationId);
   const approve = useAiMutation();
@@ -89,6 +195,11 @@ function DraftBox({ conversationId }: { conversationId: string }) {
               </p>
               {d.inboundText && (
                 <p className="text-xs text-muted">Em resposta a: “{d.inboundText}”</p>
+              )}
+              {d.deliverableName && (
+                <p className="text-xs text-warning">
+                  Ao aprovar, o agente também vai entregar: {d.deliverableName}.
+                </p>
               )}
               <p className="text-xs text-subtle">
                 {d.sources.length
@@ -241,6 +352,7 @@ function Detail({ c }: { c: AiConversationDTO }) {
         )}
       </div>
       <DraftBox conversationId={c.id} />
+      <DeliveriesBox conversationId={c.id} />
       <Thread conversationId={c.id} />
       <p className="text-xs text-subtle">
         Para escrever você mesmo, use a Central de mensagens: ao responder, a IA se afasta desta

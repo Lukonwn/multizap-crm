@@ -25,3 +25,12 @@ export {
   type SystemEventLevel,
 } from './system';
 export { searchKnowledge, hasKnowledge, type KnowledgeRow } from './ai-knowledge';
+export {
+  requestDelivery,
+  confirmPayment,
+  newPaymentReference,
+  type RequestDeliveryInput,
+  type RequestDeliveryResult,
+  type ConfirmPaymentInput,
+  type ConfirmPaymentResult,
+} from './ai-delivery';

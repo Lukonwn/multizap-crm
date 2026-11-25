@@ -84,6 +84,13 @@ export interface OutgoingMessage {
   text: string;
   image?: Buffer;
   mimetype?: string;
+  /** Mídia de qualquer tipo (entregáveis): imagem, vídeo, áudio ou documento. */
+  media?: {
+    kind: 'image' | 'video' | 'audio' | 'document';
+    data: Buffer;
+    mimetype: string;
+    fileName?: string;
+  };
 }
 
 export interface WaConnection {

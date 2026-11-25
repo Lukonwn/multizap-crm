@@ -142,6 +142,7 @@ export const QUEUE_LABEL: Record<string, string> = {
   maintenance: 'Backups',
   'ai-inbound': 'MultiZap AI',
   'ai-knowledge': 'Conhecimento',
+  'ai-generator': 'Gerador de Persona',
 };
 
 /** Rótulos das ações de auditoria exibidas no painel. */
@@ -204,6 +205,9 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'ai.draft_discarded': 'Resposta da IA descartada',
   'ai.conversation_paused': 'IA pausada em uma conversa',
   'ai.conversation_resumed': 'IA retomada em uma conversa',
+  'ai.generator_requested': 'Gerador de Persona usado',
+  'ai.generator_applied': 'Pacote do Gerador de Persona aplicado',
+  'ai.conversation_minor_released': 'IA liberada após alerta de menor de idade',
   'ai.conversation_context_reset': 'Contexto da IA reiniciado em uma conversa',
   'conversation.closed': 'Conversa finalizada',
   'conversation.reopened': 'Conversa reaberta',

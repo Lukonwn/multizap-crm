@@ -314,6 +314,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
           reason,
           pausedBy: c.aiState?.paused ? c.aiState.pausedBy : null,
           enabledOverride: c.aiState?.enabledOverride ?? false,
+          minorLock: !!c.aiState?.paused && c.aiState.pausedBy === 'minor',
           contextResetAt: c.aiState?.contextResetAt?.toISOString() ?? null,
           pendingDrafts: pending,
           agentName: c.account.aiAgentLinks[0]?.agent.name ?? null,
@@ -334,6 +335,8 @@ export async function aiServiceRoutes(app: FastifyInstance) {
           enabled: z.boolean().optional(),
           /** Recomeçar do zero: a IA ignora o que veio antes (histórico, memória, respostas humanas). */
           resetContext: z.literal(true).optional(),
+          /** Confirmação explícita para liberar uma conversa pausada por sinal de menor de idade. */
+          confirmMinor: z.literal(true).optional(),
         })
         .refine(
           (b) => b.paused !== undefined || b.enabled !== undefined || b.resetContext,
@@ -346,6 +349,18 @@ export async function aiServiceRoutes(app: FastifyInstance) {
       select: { accountId: true },
     });
     if (!conv) throw Errors.notFound('Conversa não encontrada.');
+    const current = await prisma.aiConversationState.findUnique({
+      where: { conversationId: id },
+      select: { paused: true, pausedBy: true },
+    });
+    const minorLocked = !!current?.paused && current.pausedBy === 'minor';
+    const releasing = body.paused === false || body.resetContext === true;
+    if (minorLocked && releasing && !body.confirmMinor)
+      throw new AppError(
+        409,
+        'MINOR_LOCK',
+        'Esta conversa foi pausada por sinal de menor de idade. Para liberar, confirme que você revisou a conversa.',
+      );
     const at = new Date();
     const data: Prisma.AiConversationStateUpdateInput = {};
     if (body.paused === true)
@@ -391,11 +406,14 @@ export async function aiServiceRoutes(app: FastifyInstance) {
       update: data,
     });
     await audit(prisma, req, {
-      action: body.resetContext
-        ? 'ai.conversation_context_reset'
-        : body.paused === true
-          ? 'ai.conversation_paused'
-          : 'ai.conversation_resumed',
+      action:
+        minorLocked && releasing
+          ? 'ai.conversation_minor_released'
+          : body.resetContext
+            ? 'ai.conversation_context_reset'
+            : body.paused === true
+              ? 'ai.conversation_paused'
+              : 'ai.conversation_resumed',
       actorId: actor(req).id,
       entityType: 'conversation',
       entityId: id,
@@ -431,7 +449,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
         costUsd: true,
       },
     });
-    const sum = (ctx: 'LIVE' | 'TEST') => {
+    const sum = (ctx: 'LIVE' | 'TEST' | 'GENERATOR') => {
       const r = rows.filter((x) => x.context === ctx);
       const priced = r.filter((x) => x.costUsd !== null);
       return {
@@ -444,6 +462,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
     };
     const live = sum('LIVE');
     const test = sum('TEST');
+    const gen = sum('GENERATOR');
     const dto: AiUsageSummaryDTO = {
       days: q.days,
       live: {
@@ -457,6 +476,12 @@ export async function aiServiceRoutes(app: FastifyInstance) {
         promptTokens: test.promptTokens,
         completionTokens: test.completionTokens,
         costUsd: test.costUsd,
+      },
+      generator: {
+        calls: gen.n,
+        promptTokens: gen.promptTokens,
+        completionTokens: gen.completionTokens,
+        costUsd: gen.costUsd,
       },
     };
     return dto;

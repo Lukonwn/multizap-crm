@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { GatewayClient } from '../src/lib/gateway';
 import {
   CampaignQueue,
+  GeneratorQueue,
   ImportQueue,
   KnowledgeQueue,
   SystemQueues,
@@ -35,6 +36,7 @@ export async function setupTestApp(
   importQueue: ImportQueue;
   toolQueue: ToolQueue;
   knowledgeQueue: KnowledgeQueue;
+  generatorQueue: GeneratorQueue;
   campaignQueue: CampaignQueue;
   systemQueues: SystemQueues;
 }> {
@@ -56,6 +58,7 @@ export async function setupTestApp(
   const importQueue = new ImportQueue(config.redisUrl!, 'mztest');
   const toolQueue = new ToolQueue(config.redisUrl!, 'mztest');
   const knowledgeQueue = new KnowledgeQueue(config.redisUrl!, 'mztest');
+  const generatorQueue = new GeneratorQueue(config.redisUrl!, 'mztest');
   const campaignQueue = new CampaignQueue(config.redisUrl!, 'mztest');
   const systemQueues = new SystemQueues(config.redisUrl!, 'mztest');
   const app = await buildApp({
@@ -67,6 +70,7 @@ export async function setupTestApp(
     importQueue,
     toolQueue,
     knowledgeQueue,
+    generatorQueue,
     campaignQueue,
     systemQueues,
     cipher: new CredentialCipher(new Map([[1, randomBytes(32)]]), 1),
@@ -78,6 +82,7 @@ export async function setupTestApp(
     await importQueue.close();
     await toolQueue.close();
     await knowledgeQueue.close();
+    await generatorQueue.close();
     await campaignQueue.close();
     await systemQueues.close();
   });
@@ -91,6 +96,7 @@ export async function setupTestApp(
     importQueue,
     toolQueue,
     knowledgeQueue,
+    generatorQueue,
     campaignQueue,
     systemQueues,
   };

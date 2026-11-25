@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { AiModelDTO } from '@multizap/shared';
-import { Alert, Field, Input, Spinner, cn } from '@multizap/ui';
+import { Alert, Badge, Field, Input, Spinner, cn } from '@multizap/ui';
 import { useAiModels, useAiSettings } from '@/lib/ai';
 
 const price = (v: number | null) => (v === null ? '—' : `US$ ${v.toFixed(v < 1 ? 3 : 2)}`);
@@ -13,14 +13,25 @@ const price = (v: number | null) => (v === null ? '—' : `US$ ${v.toFixed(v < 1
 export function ModelPicker({
   value,
   onChange,
+  label = 'Modelo',
+  requireImages = false,
 }: {
   value: string;
-  onChange: (m: { id: string; supportsTemperature?: boolean }) => void;
+  onChange: (m: {
+    id: string;
+    supportsTemperature?: boolean;
+    supportsImages?: boolean | null;
+  }) => void;
+  label?: string;
+  /** O uso exige imagens: modelos sem suporte aparecem avisados. */
+  requireImages?: boolean;
 }) {
   const settings = useAiSettings();
   const configured = !!settings.data?.configured;
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [onlyImages, setOnlyImages] = useState(false);
+  const [onlyFree, setOnlyFree] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q), 300);
     return () => clearTimeout(t);
@@ -30,7 +41,7 @@ export function ModelPicker({
   if (!configured)
     return (
       <Field
-        label="Modelo"
+        label={label}
         htmlFor="model-id"
         hint="Configure a chave da OpenRouter para pesquisar os modelos disponíveis. Por enquanto, digite o identificador."
       >
@@ -38,16 +49,21 @@ export function ModelPicker({
           id="model-id"
           value={value}
           placeholder="openai/gpt-4o-mini"
-          onChange={(e) => onChange({ id: e.target.value.trim() })}
+          onChange={(e) => onChange({ id: e.target.value.trim(), supportsImages: null })}
         />
       </Field>
     );
 
-  const items: AiModelDTO[] = models.data?.items.slice(0, 50) ?? [];
+  const all: AiModelDTO[] = models.data?.items ?? [];
+  const filtered = all.filter(
+    (m) => (!onlyImages || m.supportsImages === true) && (!onlyFree || m.isModerated === false),
+  );
+  const items = filtered.slice(0, 50);
+  const selected = all.find((m) => m.id === value);
   return (
     <div>
       <Field
-        label="Modelo"
+        label={label}
         htmlFor="model-search"
         hint={value ? `Selecionado: ${value}` : undefined}
       >
@@ -80,13 +96,23 @@ export function ModelPicker({
               type="button"
               role="option"
               aria-selected={m.id === value}
-              onClick={() => onChange({ id: m.id, supportsTemperature: m.supportsTemperature })}
+              onClick={() =>
+                onChange({
+                  id: m.id,
+                  supportsTemperature: m.supportsTemperature,
+                  supportsImages: m.supportsImages,
+                })
+              }
               className={cn(
                 'flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left last:border-0 hover:bg-surface-2',
                 m.id === value && 'bg-accent-soft',
               )}
             >
-              <span className="text-sm text-fg">{m.name}</span>
+              <span className="flex flex-wrap items-center gap-2 text-sm text-fg">
+                {m.name}
+                {m.supportsImages === true && <Badge tone="info">imagem</Badge>}
+                {m.isModerated === false && <Badge tone="warning">sem moderação do provedor</Badge>}
+              </span>
               <span className="text-xs text-subtle">
                 {m.id} · entrada {price(m.promptPerMillion)} / saída {price(m.completionPerMillion)}{' '}
                 por 1M tokens
@@ -96,9 +122,9 @@ export function ModelPicker({
           ))
         )}
       </div>
-      {models.data && models.data.total > items.length && (
+      {models.data && filtered.length > items.length && (
         <p className="mt-1 text-xs text-subtle">
-          Mostrando {items.length} de {models.data.total}. Refine a pesquisa.
+          Mostrando {items.length} de {filtered.length}. Refine a pesquisa.
         </p>
       )}
     </div>

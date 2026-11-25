@@ -25,9 +25,13 @@ export class OpenRouterError extends Error {
   }
 }
 
+/** Parte de uma mensagem com imagem (o modelo precisa aceitar imagens). */
+export type ContentPart =
+  { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ContentPart[];
 }
 
 export interface ChatRequest {
@@ -57,6 +61,10 @@ export interface ModelInfo {
   completionPrice: number | null;
   supportsTemperature: boolean;
   supportsMaxTokens: boolean;
+  /** O modelo aceita imagens na entrada. `null` quando a OpenRouter não informa. */
+  supportsImages: boolean | null;
+  /** O provedor principal aplica moderação de conteúdo. `null` quando não informado. */
+  isModerated: boolean | null;
 }
 
 export interface KeyInfo {
@@ -75,6 +83,15 @@ export interface OpenRouterOptions {
   appName?: string;
   timeoutMs?: number;
 }
+
+const inputModalities = (m: Record<string, unknown>): string[] | null => {
+  const arch = m.architecture as { input_modalities?: unknown } | undefined;
+  return Array.isArray(arch?.input_modalities) ? (arch!.input_modalities as string[]) : null;
+};
+const moderated = (m: Record<string, unknown>): boolean | null => {
+  const top = m.top_provider as { is_moderated?: unknown } | undefined;
+  return typeof top?.is_moderated === 'boolean' ? top.is_moderated : null;
+};
 
 const num = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
@@ -199,6 +216,8 @@ export class OpenRouterClient {
           // Sem a lista de parâmetros, assume suporte (a OpenRouter ignora o que não se aplica).
           supportsTemperature: params ? params.includes('temperature') : true,
           supportsMaxTokens: params ? params.includes('max_tokens') : true,
+          supportsImages: inputModalities(m)?.includes('image') ?? null,
+          isModerated: moderated(m),
         };
       })
       .sort((a, b) => a.id.localeCompare(b.id));

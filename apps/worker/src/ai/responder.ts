@@ -1,16 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@multizap/database';
-import { hasKnowledge, isOperationsPaused, searchKnowledge } from '@multizap/database';
+import { hasKnowledge, isOperationsPaused, notify, searchKnowledge } from '@multizap/database';
 import {
+  AGE_GATE_QUESTION,
   KNOWLEDGE_LIMITS,
+  MINOR_NOTICE,
   OpenRouterClient,
   OpenRouterError,
   buildMessages,
   buildSearchQuery,
   buildSystemPrompt,
+  detectMinorInMessages,
   estimateCost,
   hitsForDisplay,
   knowledgeForPrompt,
+  parseAgeAnswer,
   type KnowledgeHit,
   type ChatMessage,
   type ModelInfo,
@@ -182,6 +186,53 @@ export class AiResponder {
       select: { id: true },
     });
     if (human) return skip('Uma pessoa respondeu esta conversa', { by: 'human' });
+
+    // Proteção de menor de idade (vale para todo agente, antes de qualquer resposta ou limite):
+    // sinais de menos de 18 anos nas últimas mensagens do contato encerram o atendimento.
+    // Não verifica idade: só detecta sinais. A IA fica pausada até o administrador liberar.
+    const recentInbound = await prisma.message.findMany({
+      where: {
+        conversationId: conv.id,
+        direction: 'INBOUND',
+        type: 'text',
+        body: { not: null },
+        ...(state?.contextResetAt && { sentAt: { gt: state.contextResetAt } }),
+      },
+      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+      take: 3,
+      select: { body: true },
+    });
+    const signal = detectMinorInMessages(recentInbound.map((m) => m.body!));
+    const autoMode = agent.mode === 'AUTO';
+    if (signal) {
+      const reason = `Possível menor de idade (${signal.kind}): "${signal.snippet}"`;
+      await this.lockMinor(conv, agent, msg, reason, autoMode);
+      return { status: 'skipped', reason: 'Possível menor de idade' };
+    }
+
+    // Portão de idade (opcional por agente): pergunta antes de conversar. Não verifica idade.
+    if (agent.ageGate && !state?.ageConfirmedAt) {
+      const answer = state?.ageAskedAt ? parseAgeAnswer(msg.body ?? '') : null;
+      if (answer === 'no') {
+        await this.lockMinor(conv, agent, msg, 'Respondeu que não tem 18 anos', autoMode);
+        return { status: 'skipped', reason: 'Possível menor de idade' };
+      }
+      if (answer === 'yes') {
+        await prisma.aiConversationState.update({
+          where: { conversationId: conv.id },
+          data: { ageConfirmedAt: new Date(this.now()) },
+        });
+      } else {
+        // Primeira mensagem, ou resposta que não deu para entender: faz (ou repete) a pergunta.
+        await this.emitCanned(conv, agent, msg, AGE_GATE_QUESTION, autoMode);
+        await prisma.aiConversationState.upsert({
+          where: { conversationId: conv.id },
+          create: { conversationId: conv.id, ageAskedAt: new Date(this.now()) },
+          update: { ageAskedAt: new Date(this.now()), lastSkip: null, lastSkipAt: null },
+        });
+        return { status: autoMode ? 'sent' : 'drafted' };
+      }
+    }
 
     // Limites de envio.
     const hourAgo = new Date(this.now() - HOUR);
@@ -394,6 +445,127 @@ export class AiResponder {
   }
 
   // ─── apoio ──────────────────────────────────────────────────────────────
+
+  /**
+   * Sinal de menor de idade: pausa a IA nesta conversa (só o administrador libera), avisa o
+   * administrador e, no modo automático, envia uma única mensagem fixa e neutra.
+   */
+  private async lockMinor(
+    conv: { id: string; accountId: string; title: string | null; phoneE164: string | null },
+    agent: { id: string; publishedVersionId: string | null },
+    msg: { id: string },
+    reason: string,
+    auto: boolean,
+  ) {
+    const at = new Date(this.now());
+    await this.prisma.aiConversationState.upsert({
+      where: { conversationId: conv.id },
+      create: {
+        conversationId: conv.id,
+        paused: true,
+        pausedBy: 'minor',
+        pausedReason: reason,
+        pausedAt: at,
+        lastSkip: reason,
+        lastSkipAt: at,
+      },
+      update: {
+        paused: true,
+        pausedBy: 'minor',
+        pausedReason: reason,
+        pausedAt: at,
+        lastSkip: reason,
+        lastSkipAt: at,
+      },
+    });
+    if (auto) await this.emitCanned(conv, agent, msg, MINOR_NOTICE, true);
+    await this.event(agent.id, 'AGENT', 'warn', `Conversa pausada: ${reason}`, {
+      conversationId: conv.id,
+    });
+    await notify(this.prisma, {
+      severity: 'WARNING',
+      category: 'SECURITY',
+      title: 'IA pausada: possível menor de idade',
+      message: `${conv.title ?? conv.phoneE164 ?? 'Contato'}: ${reason}. Revise em MultiZap AI → Atendimentos.`,
+      accountId: conv.accountId,
+      dedupeKey: `ai-minor:${conv.id}`,
+    });
+  }
+
+  /**
+   * Mensagem fixa (pergunta de idade, aviso de encerramento): no modo automático é enviada pelo
+   * mesmo caminho das respostas; no modo revisão vira rascunho. Uma por mensagem do contato.
+   */
+  private async emitCanned(
+    conv: { id: string; accountId: string },
+    agent: { id: string; publishedVersionId: string | null },
+    msg: { id: string },
+    body: string,
+    auto: boolean,
+  ) {
+    const { prisma } = this;
+    if (!auto) {
+      await prisma.aiDraft
+        .create({
+          data: {
+            conversationId: conv.id,
+            agentId: agent.id,
+            versionId: agent.publishedVersionId,
+            inboundMessageId: msg.id,
+            body,
+          },
+        })
+        .catch((err) => {
+          if (!isUnique(err)) throw err;
+        });
+      return;
+    }
+    let messageId: string;
+    try {
+      messageId = await prisma.$transaction(async (tx) => {
+        const sentAt = new Date(this.now());
+        const m = await tx.message.create({
+          data: {
+            accountId: conv.accountId,
+            conversationId: conv.id,
+            providerMessageId: `pending:${randomUUID()}`,
+            direction: 'OUTBOUND',
+            type: 'text',
+            body,
+            status: 'PENDING',
+            sentAt,
+          },
+        });
+        await tx.aiMessageLink.create({
+          data: { messageId: m.id, agentId: agent.id, source: 'auto' },
+        });
+        await tx.aiDraft.create({
+          data: {
+            conversationId: conv.id,
+            agentId: agent.id,
+            versionId: agent.publishedVersionId,
+            inboundMessageId: msg.id,
+            body,
+            sentBody: body,
+            status: 'SENT',
+            autoSent: true,
+            messageId: m.id,
+            decidedAt: sentAt,
+          },
+        });
+        await tx.aiConversationState.upsert({
+          where: { conversationId: conv.id },
+          create: { conversationId: conv.id, lastReplyAt: sentAt },
+          update: { lastReplyAt: sentAt },
+        });
+        return m.id;
+      });
+    } catch (err) {
+      if (isUnique(err)) return;
+      throw err;
+    }
+    await this.deps.gateway.send({ type: 'send-reply', accountId: conv.accountId, messageId });
+  }
 
   /** Últimas mensagens de texto da conversa; só as posteriores ao "reiniciar contexto", se houver. */
   private async history(

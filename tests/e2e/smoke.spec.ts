@@ -32,6 +32,7 @@ const MODULES = [
   ['/ai/agentes', 'MultiZap AI'],
   ['/ai/atendimentos', 'MultiZap AI'],
   ['/ai/conhecimento', 'MultiZap AI'],
+  ['/ai/gerador', 'MultiZap AI'],
   ['/system-health', 'System Health'],
   ['/configuracoes', 'Configurações'],
 ] as const;
@@ -151,6 +152,15 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByRole('button', { name: 'Salvar alterações' }).click();
   await expect(page.getByText(/Alterado: .*tom de voz/i)).toBeVisible();
 
+  // Gerador de Persona: sem chave da OpenRouter o pedido é recusado com a mensagem certa.
+  await page.goto('/ai/gerador');
+  await page
+    .getByLabel('Descreva o negócio e como o agente deve ser')
+    .fill('Loja de cafés especiais, atendimento informal.');
+  await page.getByLabel('Modelo do gerador').fill('openai/gpt-4o-mini');
+  await page.getByRole('button', { name: 'Gerar pacote' }).click();
+  await expect(page.getByText(/Configure a chave da OpenRouter/).first()).toBeVisible();
+
   // Base de conhecimento: o worker real lê a fonte e ela fica pronta para uso.
   await page.goto('/ai/conhecimento');
   await expect(page.getByText('Nenhum conhecimento ainda')).toBeVisible();
@@ -263,7 +273,9 @@ test('nenhum erro de JavaScript ou de console durante o percurso', () => {
   // 401 esperados (rota protegida antes do login, senha errada) não são erros de página.
   // 409 na tela do agente: recusa esperada ao ativar sem chave da OpenRouter.
   const unexpected = pageErrors.filter(
-    (e) => !/401|Unauthorized|status of 401/.test(e) && !/\/ai\/agentes\/.*status of 409/.test(e),
+    (e) =>
+      !/401|Unauthorized|status of 401/.test(e) &&
+      !/\/ai\/(agentes\/|gerador).*status of 409/.test(e),
   );
   expect(unexpected).toEqual([]);
 });

@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import {
+  AI_GENERATOR_QUEUE,
   AI_KNOWLEDGE_QUEUE,
   CAMPAIGNS_QUEUE,
   GATEWAY_QUEUE,
@@ -8,6 +9,7 @@ import {
   MAINTENANCE_QUEUE,
   QUEUE_LABEL,
   TOOLS_QUEUE,
+  type AiGeneratorJob,
   type AiKnowledgeJob,
   type MaintenanceJob,
   type QueueCounts,
@@ -100,6 +102,31 @@ export class KnowledgeQueue {
   /** Cada pedido gera um job novo: reprocessar depois de um erro é permitido. */
   async add(sourceId: string): Promise<void> {
     await this.queue.add('process', { sourceId }, { jobId: `kb-${sourceId}-${Date.now()}` });
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
+    this.conn.disconnect();
+  }
+}
+
+/** Fila do Gerador de Persona (consumida pelo worker). Sem nova tentativa automática: custa dinheiro. */
+export class GeneratorQueue {
+  private readonly conn: Redis;
+  readonly queue: Queue<AiGeneratorJob>;
+
+  constructor(redisUrl: string, prefix = 'bull') {
+    this.conn = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.conn.on('error', () => undefined);
+    this.queue = new Queue<AiGeneratorJob>(AI_GENERATOR_QUEUE, {
+      connection: this.conn,
+      prefix,
+      defaultJobOptions: { attempts: 1, removeOnComplete: 100, removeOnFail: 200 },
+    });
+  }
+
+  async add(generationId: string): Promise<void> {
+    await this.queue.add('generate', { generationId }, { jobId: `gen-${generationId}` });
   }
 
   async close(): Promise<void> {

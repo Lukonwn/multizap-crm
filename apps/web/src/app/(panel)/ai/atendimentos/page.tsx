@@ -138,8 +138,24 @@ function DraftBox({ conversationId }: { conversationId: string }) {
 function Detail({ c }: { c: AiConversationDTO }) {
   const act = useAiMutation();
   const s = STATE[c.state];
-  const set = (json: { paused?: boolean; enabled?: boolean; resetContext?: true }) =>
+  const set = (json: {
+    paused?: boolean;
+    enabled?: boolean;
+    resetContext?: true;
+    confirmMinor?: true;
+  }) => {
+    // Conversa travada por sinal de menor de idade: liberar exige confirmação explícita.
+    if (c.minorLock && (json.paused === false || json.resetContext)) {
+      if (
+        !window.confirm(
+          'Esta conversa foi pausada porque havia sinal de que o contato é menor de 18 anos. Confirme que você revisou a conversa e que quer liberar a IA mesmo assim.',
+        )
+      )
+        return;
+      json = { ...json, confirmMinor: true };
+    }
     act.mutate({ path: `/ai/conversations/${c.id}/state`, method: 'PUT', json });
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -150,11 +166,18 @@ function Detail({ c }: { c: AiConversationDTO }) {
             {c.phoneE164 ? ` · ${formatPhone(c.phoneE164)}` : ''}
           </p>
         </div>
-        <Badge tone={s.tone} dot>
-          {s.label}
+        <Badge tone={c.minorLock ? 'danger' : s.tone} dot>
+          {c.minorLock ? 'Possível menor' : s.label}
         </Badge>
       </div>
-      {c.reason && (
+      {c.minorLock && (
+        <Alert tone="danger" title="Possível menor de idade">
+          A IA parou de responder esta conversa e só volta se você liberar. Revise as mensagens
+          abaixo. O sistema detecta sinais (idade, escola), mas não consegue verificar a idade de
+          ninguém.
+        </Alert>
+      )}
+      {c.reason && !c.minorLock && (
         <Alert tone={c.state === 'blocked' ? 'warning' : 'info'}>
           {c.reason}
           {c.state === 'paused' && c.pausedBy === 'human' && (
@@ -172,7 +195,8 @@ function Detail({ c }: { c: AiConversationDTO }) {
       <div className="flex flex-wrap gap-2">
         {c.state === 'paused' ? (
           <Button size="sm" loading={act.isPending} onClick={() => set({ paused: false })}>
-            <Play className="h-3.5 w-3.5" /> Retomar IA nesta conversa
+            <Play className="h-3.5 w-3.5" />{' '}
+            {c.minorLock ? 'Liberar a IA (confirmo que revisei)' : 'Retomar IA nesta conversa'}
           </Button>
         ) : (
           <Button
@@ -304,8 +328,12 @@ export default function AttendancePage() {
                           <UserRound className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
                           <span className="truncate">{title(c)}</span>
                         </span>
-                        <Badge tone={st.tone}>
-                          {c.state === 'review' ? `${c.pendingDrafts} p/ revisar` : st.label}
+                        <Badge tone={c.minorLock ? 'danger' : st.tone}>
+                          {c.minorLock
+                            ? 'Possível menor'
+                            : c.state === 'review'
+                              ? `${c.pendingDrafts} p/ revisar`
+                              : st.label}
                         </Badge>
                       </span>
                       <span className="truncate text-xs text-muted">

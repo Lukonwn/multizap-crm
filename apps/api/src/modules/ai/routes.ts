@@ -12,6 +12,7 @@ import {
   estimateCost,
   hitsForDisplay,
   knowledgeForPrompt,
+  minorTermInObject,
   type KnowledgeHit,
   type ModelInfo,
   type PersonaSpec,
@@ -41,12 +42,23 @@ const MODELS_CACHE_KEY = 'multizap:ai:models';
 const MAX_TEST_MESSAGES = 100;
 
 const idParams = z.object({ id: z.string().uuid('Identificador inválido.') });
+/** Persona ou instruções que sugerem menor de idade não são salvas. */
+function assertAdultContent(value: unknown) {
+  const term = minorTermInObject(value);
+  if (term)
+    throw new AppError(
+      400,
+      'MINOR_TERM',
+      `Não é possível salvar: o texto sugere menor de idade ("${term}"). A persona e o agente atendem apenas adultos.`,
+    );
+}
+
 const confirmSchema = z.object({
   confirmName: z.string().trim().min(1, 'Digite o nome para confirmar.'),
 });
 
 /** Campos da persona que entram no prompt (e na fotografia das versões). */
-const PERSONA_FIELDS = [
+export const PERSONA_FIELDS = [
   'name',
   'age',
   'identity',
@@ -77,7 +89,7 @@ const AGENT_FIELDS = [
   'mode',
 ] as const;
 
-const FIELD_LABEL: Record<string, string> = {
+export const FIELD_LABEL: Record<string, string> = {
   name: 'nome',
   age: 'idade',
   identity: 'identidade',
@@ -107,7 +119,7 @@ export interface AgentSnapshot {
   persona: PersonaFields & { id: string };
 }
 
-const pick = <T extends object, K extends keyof T>(o: T, keys: readonly K[]) =>
+export const pick = <T extends object, K extends keyof T>(o: T, keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, o[k]])) as Pick<T, K>;
 
 /** JSON com chaves em ordem alfabética (o jsonb do PostgreSQL não preserva a ordem). */
@@ -122,7 +134,7 @@ function stable(v: unknown): string {
 }
 
 /** Comparação estável de dois valores (para listar campos alterados). */
-const same = (a: unknown, b: unknown) => stable(a) === stable(b);
+export const same = (a: unknown, b: unknown) => stable(a) === stable(b);
 
 function toPersonaDTO(p: AiPersona & { _count?: { agents: number } }): PersonaDTO {
   return {
@@ -189,6 +201,7 @@ function toAgentDTO(a: AgentRow): AgentDTO {
     minIntervalSeconds: a.minIntervalSeconds,
     showTyping: a.showTyping,
     maxRepliesPerHour: a.maxRepliesPerHour,
+    ageGate: a.ageGate,
     publishedVersion: a.publishedVersion
       ? {
           id: a.publishedVersion.id,
@@ -369,6 +382,8 @@ export async function aiRoutes(app: FastifyInstance) {
         promptPerMillion: m.promptPrice === null ? null : m.promptPrice * 1_000_000,
         completionPerMillion: m.completionPrice === null ? null : m.completionPrice * 1_000_000,
         supportsTemperature: m.supportsTemperature,
+        supportsImages: m.supportsImages,
+        isModerated: m.isModerated,
       }));
     return { items, total: items.length };
   });
@@ -408,6 +423,7 @@ export async function aiRoutes(app: FastifyInstance) {
       req.body,
     );
     const { isTemplate, ...data } = body;
+    assertAdultContent(data);
     const p = await prisma.aiPersona.create({
       data: { ...data, age: data.age ?? null, isTemplate },
     });
@@ -432,6 +448,7 @@ export async function aiRoutes(app: FastifyInstance) {
   app.patch('/ai/personas/:id', auth, async (req) => {
     const { id } = parse(idParams, req.params);
     const input = parse(personaUpdateSchema, req.body);
+    assertAdultContent(input);
     const before = await loadPersona(id);
     const changed = (Object.keys(input) as (keyof typeof input)[]).filter(
       (k) => input[k] !== undefined && !same(input[k], before[k as keyof AiPersona]),
@@ -585,6 +602,7 @@ export async function aiRoutes(app: FastifyInstance) {
 
   app.post('/ai/agents', auth, async (req, reply) => {
     const input = parse(agentInputSchema, req.body);
+    assertAdultContent(input.instructions);
     await assertUsablePersona(input.personaId);
     const a = await prisma.aiAgent.create({
       data: { ...input, temperature: input.temperature ?? null },
@@ -603,6 +621,7 @@ export async function aiRoutes(app: FastifyInstance) {
   app.patch('/ai/agents/:id', auth, async (req) => {
     const { id } = parse(idParams, req.params);
     const input = parse(agentUpdateSchema, req.body);
+    assertAdultContent(input.instructions);
     await loadAgent(id);
     if (input.personaId) await assertUsablePersona(input.personaId);
     const a = await prisma.aiAgent.update({ where: { id }, data: input, include: agentInclude });

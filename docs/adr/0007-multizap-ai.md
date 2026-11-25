@@ -1,6 +1,6 @@
 # ADR 0007: MultiZap AI (agentes de IA no atendimento)
 
-**Status:** aceito (Entregas 1 a 3 implementadas; 4 e 5 planejadas)
+**Status:** aceito (Entregas 1 a 3, proteção de menor de idade e Gerador de Persona implementados; 4 e 5 planejadas)
 
 ## Contexto
 
@@ -47,6 +47,26 @@ O administrador quer agentes de IA que atendam pelo WhatsApp com personas própr
 - **Links e SSRF:** o servidor só lê páginas públicas http/https (portas 80 e 443, sem usuário e senha, só HTML e texto, até 2 MB, 15 s, 3 redirecionamentos). O nome é resolvido uma vez, **todos** os endereços são validados e a conexão usa o endereço validado (sem nova consulta de DNS); endereços escritos como número são validados antes de qualquer conexão (o Node não consulta o DNS para eles), inclusive formas como `2130706433`, `0x7f.0.0.1` e `::ffff:7f00:1`; cada redirecionamento passa pela mesma checagem. Bloqueia rede local, loopback, link-local (metadados de nuvem), CGNAT, multicast e IPv6 interno. O texto da página é lido uma vez; para atualizar, "Reprocessar".
 - **Arquivos** ficam no bucket (`ai/knowledge/`), nunca no disco do container; o texto extraído fica no banco e entra no backup. O arquivo original **não** entra no backup do sistema (está no bucket).
 - **Migração** `20261127120000_ai_knowledge`: só tabelas novas (`ai_knowledge_sources`, `ai_knowledge_chunks`, `ai_agent_knowledge`) e a coluna `ai_drafts.sources`; reversão em [`docs/migrations/20261127120000_ai_knowledge.down.sql`](../migrations/20261127120000_ai_knowledge.down.sql).
+
+## Proteção de menor de idade (todos os agentes)
+
+Esta proteção **não verifica a idade de ninguém**: o WhatsApp não permite isso. Ela só **detecta sinais** de que o contato pode ter menos de 18 anos e encerra o atendimento. É melhor esforço, não garantia; a responsabilidade legal por quem recebe o conteúdo continua sendo do administrador. Verificação real (documento, cadastro validado) teria de ser feita fora do WhatsApp.
+
+- **Trava automática (sem modelo):** antes de qualquer resposta ou limite, o worker procura sinais nas 3 últimas mensagens do contato (depois do último reinício de contexto): idade declarada abaixo de 18 ("tenho 15 anos", "15 aninhos", "faço 16 mês que vem", ano de nascimento), declarações ("sou menor", "não tenho 18") e sinais escolares ("9º ano", "ensino fundamental", "minha mãe não deixa"). Não dispara para "tenho 25 anos" nem para "10 anos de mercado". Ao detectar: **não gera resposta**; no modo automático envia uma única mensagem fixa e neutra ("Não posso continuar esta conversa."); a conversa fica **pausada para sempre** (`paused_by = 'minor'`), o administrador recebe um alerta (notificação do sistema, categoria Segurança, e evento do agente) com o trecho que disparou. **Só o administrador libera**, com confirmação explícita (`confirmMinor`), e isso fica na auditoria. Responder pela Central não troca essa trava por "pessoa respondeu". Pode haver falso alarme: o custo é uma conversa pausada.
+- **Regra fixa no prompt** de todo agente: ao menor indício de menor de 18 anos, encerrar de forma neutra e nunca continuar com conteúdo sexual ou adulto. O modelo erra, por isso não é a única camada.
+- **Portão de idade (opcional por agente, desligado por padrão):** a primeira mensagem é respondida com "você tem 18 anos ou mais? Responda sim ou não." (modo revisão: vira rascunho). "Sim" libera e a conversa segue; "não" ou idade abaixo de 18 trava como acima; resposta incompreensível repete a pergunta. É só uma pergunta, qualquer menor pode responder "sim": não é verificação.
+- **Persona adulta:** a idade da persona passa a exigir 18 ou mais; termos inequívocos que sugerem menor ("colegial", "novinha", "ninfeta", "lolita", "menor de idade", "menina de 15 anos", "teen"...) impedem salvar persona, instruções do agente e pacotes do gerador. A lista é curta de propósito, para não barrar loja de moda infantil, escola etc.
+- **Não muda:** a regra "não afirmar ser humano quando perguntado diretamente" continua valendo para qualquer persona.
+
+## Gerador de Persona
+
+- **O que faz:** a partir de uma descrição, links (até 3), documentos (PDF, DOCX, TXT, MD, CSV; até 4 de 8 MB) e imagens (PNG, JPG, WEBP; até 6 de 4 MB), um modelo **escolhido pelo administrador na hora** devolve um pacote: persona completa, instruções do agente, fontes de conhecimento (textos e perguntas e respostas), **lacunas** (perguntas que o material não respondeu) e observações.
+- **Modelo:** qualquer um da OpenRouter, separado do modelo do agente. A lista mostra "aceita imagem" e "sem moderação do provedor" quando a OpenRouter informa (`architecture.input_modalities`, `top_provider.is_moderated`), com filtros. Não há modelo fixo nem recomendação de nome: a oferta muda toda semana. Com imagens, o pedido é recusado se a lista já carregada mostrar que o modelo não as aceita.
+- **Processamento** no worker (fila `ai-generator`, sem nova tentativa automática por custar dinheiro, no máximo 2 em andamento): lê documentos e links (mesma proteção contra SSRF da base de conhecimento), envia imagens como partes de imagem, e pede só JSON. Se a resposta vier fora do formato, pede **uma** correção ao modelo, informando o motivo. Recusas do modelo viram erro claro com o início da resposta dele. Pacote com termo que sugere menor de idade é descartado na hora.
+- **Imagens e arquivos são temporários:** ficam no bucket só até a geração terminar (sucesso ou erro) e são apagados; o registro guarda só os nomes. O pacote fica em `ai_generations` até o administrador apagar.
+- **Sem invenção:** o pedido manda usar somente fatos do material, marcar deduções como "(a confirmar)" e listar lacunas. O tom (inclusive informal e gírias) segue o que o administrador descrever; isso não altera as regras fixas.
+- **Aplicar:** o administrador revisa e edita tudo e escolhe entre **criar um agente novo** (rascunho, revisão humana, inativo, nunca publicado) ou **melhorar um agente existente** (persona: só campos preenchidos mudam; instruções: substituem as do rascunho; conhecimento: adiciona e liga). Cada seção pode ser desmarcada. Em agente ativo, persona e instruções só valem ao publicar; o conhecimento vale na hora (avisado na tela). Um pacote só pode ser aplicado uma vez. Consumo registrado como `GENERATOR`, com custo por geração.
+- **Migração** `20261129120000_ai_generator`: tabela `ai_generations`, `ai_agents.age_gate`, `ai_conversation_states.age_asked_at/age_confirmed_at` e o valor `GENERATOR` em `AiUsageContext` (o PostgreSQL não remove valores de enum; a reversão em `docs/migrations/` explica).
 
 ## Migração
 

@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import { Worker, type Job } from 'bullmq';
 import { getPrisma } from '@multizap/database';
 import {
+  AI_GENERATOR_QUEUE,
   AI_KNOWLEDGE_QUEUE,
   AI_QUEUE,
   GATEWAY_QUEUE,
@@ -12,6 +13,7 @@ import {
   type ToolJobData,
   CAMPAIGNS_QUEUE,
   MAINTENANCE_QUEUE,
+  type AiGeneratorJob,
   type AiInboundJob,
   type AiKnowledgeJob,
   type CampaignJob,
@@ -29,6 +31,7 @@ import { CampaignPreparer } from './campaigns/preparer';
 import { MetricsRollup } from './metrics/rollup';
 import { AiResponder } from './ai/responder';
 import { KnowledgeProcessor } from './ai/knowledge/processor';
+import { GeneratorProcessor } from './ai/generator/processor';
 import {
   assertTimezone,
   isOperationsPaused,
@@ -175,6 +178,26 @@ const knowledgeWorker = new Worker<AiKnowledgeJob>(
 );
 knowledgeWorker.on('failed', (job, err) => {
   log('Fonte de conhecimento falhou', { sourceId: job?.data.sourceId, err: err.message });
+});
+
+// Gerador de Persona: lê o material, pede o pacote ao modelo e guarda o resultado para revisão.
+const generator = new GeneratorProcessor({
+  prisma,
+  storage,
+  cipher: aiCipher,
+  appUrl: process.env.WEB_ORIGIN,
+  log,
+});
+const generatorWorker = new Worker<AiGeneratorJob>(
+  AI_GENERATOR_QUEUE,
+  async (job) => {
+    log('Gerador de Persona', { generationId: job.data.generationId });
+    await generator.process(job.data.generationId);
+  },
+  { connection: redis.duplicate(), prefix, concurrency: 1 },
+);
+generatorWorker.on('failed', (job, err) => {
+  log('Gerador de Persona falhou', { generationId: job?.data.generationId, err: err.message });
 });
 
 const preparer = new CampaignPreparer(prisma, log);
@@ -419,6 +442,7 @@ onShutdown(async () => {
     campaignWorker.close(),
     aiWorker.close(),
     knowledgeWorker.close(),
+    generatorWorker.close(),
     gatewayQueue.close(),
     campaignQueue.close(),
   ]);

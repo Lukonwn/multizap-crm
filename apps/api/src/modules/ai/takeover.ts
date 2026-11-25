@@ -18,6 +18,12 @@ export async function pauseAiForHuman(prisma: PrismaClient, conversationId: stri
         select: { id: true },
       }));
     if (!served) return;
+    // A trava por sinal de menor de idade não é trocada por "pessoa respondeu".
+    const lock = await prisma.aiConversationState.findUnique({
+      where: { conversationId },
+      select: { paused: true, pausedBy: true },
+    });
+    if (lock?.paused && lock.pausedBy === 'minor') return;
     const at = new Date();
     const reason = 'Uma pessoa respondeu esta conversa';
     await prisma.aiConversationState.upsert({

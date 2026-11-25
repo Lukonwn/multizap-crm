@@ -500,3 +500,11 @@
 
 - Em **Atendimentos**, o botão **Reiniciar contexto da IA** faz a IA ignorar o histórico, a memória e as respostas de pessoas anteriores naquela conversa e voltar a atendê-la, sem apagar nenhuma mensagem. Pede confirmação, entra na auditoria e mostra quando foi feito.
 - Migração reversível `20261128120000_ai_context_reset` (uma coluna nova em `ai_conversation_states`).
+
+## MultiZap AI: proteção de menor de idade e Gerador de Persona ✅
+
+- **Proteção de menor de idade** (todos os agentes): detecção de sinais (idade, declaração, escola) sem modelo, conversa pausada até o administrador liberar com confirmação, alerta, mensagem fixa e neutra no modo automático, regra fixa no prompt, persona com 18 anos ou mais e termos bloqueados. **Portão de idade** opcional por agente, desligado por padrão. Não verifica idade (ver ADR 0007).
+- **Gerador de Persona** (nova aba): descrição, links, documentos e imagens → pacote com persona, instruções, conhecimento e lacunas → revisão e edição → criar um agente novo ou melhorar um existente, sempre como rascunho. Modelo escolhido na hora, com selos de "aceita imagem" e "sem moderação do provedor".
+- Migração reversível `20261129120000_ai_generator`.
+- Testes: segurança de idade (66), gerador (20 do pacote), respondedor (14 novos), processador do gerador (10), rotas (20); e2e.
+- Passo de implantação: nenhuma variável nova.

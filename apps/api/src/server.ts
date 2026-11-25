@@ -3,7 +3,14 @@ import { loadConfig } from './config';
 import { buildApp } from './app';
 import { createRedis } from './lib/redis';
 import { GatewayClient } from './lib/gateway';
-import { CampaignQueue, ImportQueue, KnowledgeQueue, SystemQueues, ToolQueue } from './lib/queues';
+import {
+  CampaignQueue,
+  GeneratorQueue,
+  ImportQueue,
+  KnowledgeQueue,
+  SystemQueues,
+  ToolQueue,
+} from './lib/queues';
 import { storageFromEnv } from '@multizap/storage';
 import { cipherFromEnv } from '@multizap/shared/crypto';
 
@@ -23,6 +30,9 @@ const toolQueue = config.redisUrl ? new ToolQueue(config.redisUrl, config.queueP
 const knowledgeQueue = config.redisUrl
   ? new KnowledgeQueue(config.redisUrl, config.queuePrefix)
   : null;
+const generatorQueue = config.redisUrl
+  ? new GeneratorQueue(config.redisUrl, config.queuePrefix)
+  : null;
 const campaignQueue = config.redisUrl
   ? new CampaignQueue(config.redisUrl, config.queuePrefix)
   : null;
@@ -38,6 +48,7 @@ const app = await buildApp({
   importQueue,
   toolQueue,
   knowledgeQueue,
+  generatorQueue,
   campaignQueue,
   systemQueues,
   cipher,
@@ -55,6 +66,7 @@ const shutdown = async (signal: string) => {
   await importQueue?.close();
   await toolQueue?.close();
   await knowledgeQueue?.close();
+  await generatorQueue?.close();
   await campaignQueue?.close();
   await systemQueues?.close();
   await prisma.$disconnect();

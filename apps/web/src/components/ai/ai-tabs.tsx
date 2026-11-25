@@ -6,6 +6,7 @@ import { cn } from '@multizap/ui';
 const TABS = [
   { href: '/ai/agentes', label: 'Agentes' },
   { href: '/ai/personas', label: 'Personas' },
+  { href: '/ai/gerador', label: 'Gerador de Persona' },
   { href: '/ai/conhecimento', label: 'Conhecimento' },
   { href: '/ai/atendimentos', label: 'Atendimentos' },
   { href: '/ai/laboratorio', label: 'Laboratório' },

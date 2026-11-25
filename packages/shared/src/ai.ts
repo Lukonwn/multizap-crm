@@ -143,7 +143,13 @@ const list = (maxItems: number, maxLen: number) =>
 
 export const personaInputSchema = z.object({
   name: z.string().trim().min(2, 'Informe um nome com ao menos 2 caracteres.').max(80),
-  age: z.coerce.number().int().min(1).max(120).optional().nullable(),
+  age: z.coerce
+    .number()
+    .int()
+    .min(18, 'A persona precisa ter 18 anos ou mais.')
+    .max(120)
+    .optional()
+    .nullable(),
   identity: text(600),
   biography: text(3000),
   backstory: text(3000),
@@ -195,6 +201,8 @@ export const agentInputSchema = z.object({
   minIntervalSeconds: z.coerce.number().int().min(0).max(120).default(8),
   showTyping: z.boolean().default(true),
   maxRepliesPerHour: z.coerce.number().int().min(1).max(60).default(10),
+  /** Pergunta "você tem 18 anos ou mais?" antes de conversar. Desligada por padrão; NÃO verifica idade. */
+  ageGate: z.boolean().default(false),
 });
 export type AgentInput = z.input<typeof agentInputSchema>;
 export const agentUpdateSchema = agentInputSchema.partial();
@@ -223,6 +231,7 @@ export interface AgentDTO {
   minIntervalSeconds: number;
   showTyping: boolean;
   maxRepliesPerHour: number;
+  ageGate: boolean;
   publishedVersion: { id: string; number: number; createdAt: string } | null;
   /** Há alterações (no agente ou na persona) ainda não publicadas. */
   hasUnpublishedChanges: boolean;
@@ -260,6 +269,10 @@ export interface AiModelDTO {
   promptPerMillion: number | null;
   completionPerMillion: number | null;
   supportsTemperature: boolean;
+  /** Aceita imagens na entrada (null = a OpenRouter não informou). */
+  supportsImages: boolean | null;
+  /** O provedor aplica moderação de conteúdo (null = não informado). */
+  isModerated: boolean | null;
 }
 
 export interface TestMessageDTO {
@@ -327,6 +340,8 @@ export interface AiConversationDTO {
   reason: string | null;
   pausedBy: string | null;
   enabledOverride: boolean;
+  /** Pausada por sinal de menor de idade: só o administrador libera, com confirmação explícita. */
+  minorLock: boolean;
   /** Quando o contexto da IA foi reiniciado nesta conversa (ela ignora o que veio antes). */
   contextResetAt: string | null;
   pendingDrafts: number;
@@ -337,4 +352,110 @@ export interface AiUsageSummaryDTO {
   days: number;
   live: { replies: number; promptTokens: number; completionTokens: number; costUsd: number | null };
   test: { calls: number; promptTokens: number; completionTokens: number; costUsd: number | null };
+  generator: {
+    calls: number;
+    promptTokens: number;
+    completionTokens: number;
+    costUsd: number | null;
+  };
+}
+
+// ─── Gerador de Persona ─────────────────────────────────────────────────────
+
+export const AI_GENERATOR_QUEUE = 'ai-generator';
+export interface AiGeneratorJob {
+  generationId: string;
+}
+export const GENERATOR_LIMITS = {
+  maxDescriptionChars: 8000,
+  maxLinks: 3,
+  maxDocs: 4,
+  maxImages: 6,
+  maxDocBytes: 8 * 1024 * 1024,
+  maxImageBytes: 4 * 1024 * 1024,
+} as const;
+export const GENERATOR_DOC_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'csv'] as const;
+export const GENERATOR_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'] as const;
+
+/** Pacote devolvido pelo gerador: tudo o que o MultiZap AI pede para montar um agente. */
+export const generatorPackageSchema = z.object({
+  persona: personaInputSchema,
+  /** Instruções do agente (campo "Instruções do agente"). */
+  agentInstructions: z.string().trim().max(4000).default(''),
+  knowledge: z
+    .object({
+      texts: z
+        .array(
+          z.object({
+            name: z.string().trim().min(2).max(120),
+            content: z.string().trim().min(10).max(20_000),
+          }),
+        )
+        .max(10)
+        .default([]),
+      qa: z
+        .array(
+          z.object({
+            question: z.string().trim().min(3).max(500),
+            answer: z.string().trim().min(2).max(4000),
+          }),
+        )
+        .max(60)
+        .default([]),
+    })
+    .default({}),
+  /** Perguntas que o material não respondeu, para o administrador completar. */
+  gaps: z.array(z.string().trim().min(3).max(300)).max(30).default([]),
+  notes: z.string().trim().max(2000).optional().nullable(),
+});
+export type GeneratorPackage = z.output<typeof generatorPackageSchema>;
+
+export const generatorApplySchema = z
+  .object({
+    package: generatorPackageSchema,
+    mode: z.enum(['new', 'improve']),
+    /** Novo agente: nome e modelo. */
+    agentName: z.string().trim().min(2).max(80).optional(),
+    agentModel: z.string().trim().min(3).max(200).optional(),
+    /** Melhorar: agente alvo e o que aplicar. */
+    agentId: z.string().uuid().optional(),
+    sections: z
+      .object({
+        persona: z.boolean().default(true),
+        instructions: z.boolean().default(true),
+        knowledge: z.boolean().default(true),
+      })
+      .default({}),
+  })
+  .superRefine((v, ctx) => {
+    if (v.mode === 'new') {
+      if (!v.agentName)
+        ctx.addIssue({ code: 'custom', path: ['agentName'], message: 'Informe o nome do agente.' });
+      if (!v.agentModel)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['agentModel'],
+          message: 'Escolha o modelo do agente.',
+        });
+    } else if (!v.agentId)
+      ctx.addIssue({ code: 'custom', path: ['agentId'], message: 'Escolha o agente a melhorar.' });
+  });
+export type GeneratorApplyInput = z.input<typeof generatorApplySchema>;
+
+export interface AiGenerationDTO {
+  id: string;
+  status: 'PENDING' | 'PROCESSING' | 'READY' | 'ERROR';
+  error: string | null;
+  model: string;
+  description: string;
+  links: string[];
+  files: { name: string; kind: 'doc' | 'image' }[];
+  targetAgentId: string | null;
+  result: GeneratorPackage | null;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number | null;
+  costConfirmed: boolean;
+  appliedAt: string | null;
+  createdAt: string;
 }

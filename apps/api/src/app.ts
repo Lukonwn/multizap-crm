@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
 import type {
   CampaignQueue,
+  GeneratorQueue,
   ImportQueue,
   KnowledgeQueue,
   SystemQueues,
@@ -34,6 +35,7 @@ import type { CredentialCipher } from '@multizap/shared/crypto';
 import { aiRoutes } from './modules/ai/routes';
 import { aiServiceRoutes } from './modules/ai/service-routes';
 import { aiKnowledgeRoutes } from './modules/ai/knowledge-routes';
+import { aiGeneratorRoutes } from './modules/ai/generator-routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -45,6 +47,7 @@ declare module 'fastify' {
     importQueue: ImportQueue | null;
     toolQueue: ToolQueue | null;
     knowledgeQueue: KnowledgeQueue | null;
+    generatorQueue: GeneratorQueue | null;
     campaignQueue: CampaignQueue | null;
     systemQueues: SystemQueues | null;
     /** Cifra das credenciais (chave da OpenRouter). Null sem CREDENTIALS_MASTER_KEY. */
@@ -63,6 +66,7 @@ export interface BuildDeps {
   importQueue?: ImportQueue | null;
   toolQueue?: ToolQueue | null;
   knowledgeQueue?: KnowledgeQueue | null;
+  generatorQueue?: GeneratorQueue | null;
   campaignQueue?: CampaignQueue | null;
   systemQueues?: SystemQueues | null;
   cipher?: CredentialCipher | null;
@@ -79,6 +83,7 @@ export async function buildApp({
   importQueue = null,
   toolQueue = null,
   knowledgeQueue = null,
+  generatorQueue = null,
   campaignQueue = null,
   systemQueues = null,
   cipher = null,
@@ -113,6 +118,7 @@ export async function buildApp({
   app.decorate('importQueue', importQueue);
   app.decorate('toolQueue', toolQueue);
   app.decorate('knowledgeQueue', knowledgeQueue);
+  app.decorate('generatorQueue', generatorQueue);
   app.decorate('campaignQueue', campaignQueue);
   app.decorate('systemQueues', systemQueues);
   app.decorate('cipher', cipher);
@@ -177,6 +183,7 @@ export async function buildApp({
   await app.register(aiRoutes);
   await app.register(aiServiceRoutes);
   await app.register(aiKnowledgeRoutes);
+  await app.register(aiGeneratorRoutes);
 
   return app;
 }

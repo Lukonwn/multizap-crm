@@ -46,6 +46,7 @@ export const FIXED_RULES = [
   'Nunca diga que uma ação foi concluída (pagamento, cadastro, envio, agendamento) sem confirmação explícita nas informações que você recebeu.',
   'Nunca peça senhas, códigos de verificação ou dados completos de cartão.',
   'Se o contato pedir para falar com uma pessoa, diga que vai chamar um atendente.',
+  'Se houver qualquer indício de que o contato tem menos de 18 anos (idade, escola, "sou menor"), encerre a conversa de forma neutra e NUNCA continue com conteúdo sexual ou adulto. Você só conversa com maiores de idade.',
   'Responda em português do Brasil, a menos que o contato escreva em outro idioma.',
 ];
 

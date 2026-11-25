@@ -425,11 +425,13 @@ function OperationCard({ agent }: { agent: AgentDTO }) {
   const [interval, setIntervalSecs] = useState(String(agent.minIntervalSeconds));
   const [typing, setTyping] = useState(agent.showTyping);
   const [limit, setLimit] = useState(String(agent.maxRepliesPerHour));
+  const [ageGate, setAgeGate] = useState(agent.ageGate);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     setIntervalSecs(String(agent.minIntervalSeconds));
     setTyping(agent.showTyping);
     setLimit(String(agent.maxRepliesPerHour));
+    setAgeGate(agent.ageGate);
   }, [agent]);
   const fields = save.error instanceof ApiError ? (save.error.fields ?? {}) : {};
   return (
@@ -493,6 +495,24 @@ function OperationCard({ agent }: { agent: AgentDTO }) {
             </span>
           </span>
         </label>
+        <label className="flex items-start gap-2 text-sm text-fg">
+          <input
+            type="checkbox"
+            checked={ageGate}
+            onChange={(e) => {
+              setSaved(false);
+              setAgeGate(e.target.checked);
+            }}
+            className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            Perguntar “você tem 18 anos ou mais?” antes de conversar
+            <span className="block text-xs text-subtle">
+              Desligado por padrão. É só uma pergunta: não verifica a idade de ninguém. Mesmo
+              desligada, o agente encerra a conversa ao detectar sinais de menor de idade.
+            </span>
+          </span>
+        </label>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
@@ -506,6 +526,7 @@ function OperationCard({ agent }: { agent: AgentDTO }) {
                     minIntervalSeconds: Number(interval),
                     maxRepliesPerHour: Number(limit),
                     showTyping: typing,
+                    ageGate,
                   },
                 },
                 { onSuccess: () => setSaved(true) },

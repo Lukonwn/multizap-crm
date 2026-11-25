@@ -30,53 +30,7 @@ import { ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useAiMutation, usePersona, usePersonaRevisions } from '@/lib/ai';
 import { Textarea } from '@/components/ai/textarea';
-
-type TextKey =
-  | 'identity'
-  | 'biography'
-  | 'backstory'
-  | 'personality'
-  | 'traits'
-  | 'toneOfVoice'
-  | 'communicationStyle'
-  | 'conversationStart'
-  | 'instructions'
-  | 'rules'
-  | 'allowedTopics'
-  | 'restrictedTopics';
-
-const SECTIONS: { title: string; description: string; fields: [TextKey, string, string?][] }[] = [
-  {
-    title: 'Identidade',
-    description: 'Quem é a persona e de onde ela vem.',
-    fields: [
-      ['identity', 'Identidade', 'Ex.: atendente da Loja Exemplo, especialista em calçados.'],
-      ['biography', 'Biografia'],
-      ['backstory', 'Histórico'],
-    ],
-  },
-  {
-    title: 'Personalidade e comunicação',
-    description: 'Como ela pensa e fala.',
-    fields: [
-      ['personality', 'Personalidade'],
-      ['traits', 'Características comportamentais'],
-      ['toneOfVoice', 'Tom de voz', 'Ex.: acolhedor, direto, bem-humorado.'],
-      ['communicationStyle', 'Estilo de comunicação'],
-      ['conversationStart', 'Como iniciar as conversas'],
-    ],
-  },
-  {
-    title: 'Regras e assuntos',
-    description: 'Somam-se às regras fixas de todos os agentes.',
-    fields: [
-      ['instructions', 'Instruções específicas'],
-      ['rules', 'Regras de atendimento'],
-      ['allowedTopics', 'Assuntos permitidos'],
-      ['restrictedTopics', 'Assuntos proibidos'],
-    ],
-  },
-];
+import { SECTIONS, type TextKey } from '@/components/ai/persona-fields';
 
 interface FormState {
   name: string;
@@ -229,7 +183,7 @@ function PersonaEditor() {
                 <Input
                   id="p-age"
                   type="number"
-                  min={1}
+                  min={18}
                   max={120}
                   value={form.age}
                   onChange={(e) => set({ age: e.target.value })}

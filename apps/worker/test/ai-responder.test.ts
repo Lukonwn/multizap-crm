@@ -285,6 +285,203 @@ describe('MultiZap AI: atendimento', () => {
     });
   });
 
+  describe('proteção de menor de idade', () => {
+    const nextInbound = async (c: Ctx, text: string, afterMs = 5_000) => {
+      const m = await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: `in-${randomBytes(4).toString('hex')}`,
+          direction: 'INBOUND',
+          type: 'text',
+          body: text,
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() + afterMs),
+        },
+      });
+      return { ...c, messageId: m.id };
+    };
+
+    it('revisão: sinal de menor pausa a conversa, avisa o administrador e não gera nem envia resposta', async () => {
+      const c = await setup('REVIEW', 'Oi, tenho 15 anos');
+      expect(await run(c)).toMatchObject({ status: 'skipped', reason: 'Possível menor de idade' });
+      expect(chatCalls).toHaveLength(0);
+      expect(sent).toEqual([]);
+      expect(await prisma.aiDraft.count()).toBe(0);
+      const st = await prisma.aiConversationState.findFirstOrThrow();
+      expect(st).toMatchObject({ paused: true, pausedBy: 'minor' });
+      expect(st.pausedReason).toMatch(/menor de idade.*15 anos/i);
+      const n = await prisma.systemNotification.findFirstOrThrow();
+      expect(n).toMatchObject({ category: 'SECURITY', severity: 'WARNING' });
+      expect(await prisma.aiAgentEvent.count({ where: { category: 'AGENT', level: 'warn' } })).toBe(
+        1,
+      );
+    });
+
+    it('automático: manda uma única mensagem fixa e neutra, sem chamar o modelo', async () => {
+      const c = await setup('AUTO', 'oi, sou menor de idade');
+      await run(c);
+      expect(chatCalls).toHaveLength(0);
+      const out = await prisma.message.findMany({
+        where: { direction: 'OUTBOUND' },
+        include: { aiLink: true },
+      });
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({
+        body: 'Não posso continuar esta conversa.',
+        status: 'PENDING',
+      });
+      expect(out[0]!.aiLink).toMatchObject({ source: 'auto' });
+      expect(sent.map((x) => x.type)).toEqual(['send-reply']);
+      expect(await prisma.aiConversationState.findFirstOrThrow()).toMatchObject({
+        paused: true,
+        pausedBy: 'minor',
+      });
+    });
+
+    it('depois do alerta a IA fica em silêncio, mesmo que o contato escreva de novo', async () => {
+      const c = await setup('AUTO', 'tenho 14 anos');
+      await run(c);
+      const again = await nextInbound(c, 'e agora, vai responder?');
+      expect(await run(again)).toMatchObject({ status: 'skipped' });
+      expect(chatCalls).toHaveLength(0);
+      expect(await prisma.message.count({ where: { direction: 'OUTBOUND' } })).toBe(1); // só o aviso
+    });
+
+    it('o sinal vale mesmo em uma das últimas mensagens (a pessoa continua depois de dizer a idade)', async () => {
+      const c = await setup('REVIEW', 'oi');
+      await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: 'earlier',
+          direction: 'INBOUND',
+          type: 'text',
+          body: 'tenho 16 aninhos',
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() - 30_000),
+        },
+      });
+      await run(c);
+      expect(chatCalls).toHaveLength(0);
+      expect((await prisma.aiConversationState.findFirstOrThrow()).paused).toBe(true);
+    });
+
+    it('maior de idade e conversa comum não disparam nada', async () => {
+      const c = await setup(
+        'REVIEW',
+        'tenho 25 anos e quero um café, a loja tem 10 anos de mercado?',
+      );
+      expect(await run(c)).toEqual({ status: 'drafted' });
+      expect(await prisma.systemNotification.count()).toBe(0);
+    });
+
+    it('um sinal anterior ao reinício de contexto não conta', async () => {
+      const c = await setup('REVIEW', 'quero um café');
+      await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: 'old-minor',
+          direction: 'INBOUND',
+          type: 'text',
+          body: 'tenho 15 anos',
+          status: 'RECEIVED',
+          sentAt: new Date(Date.now() - 3_600_000),
+        },
+      });
+      await prisma.aiConversationState.create({
+        data: { conversationId: c.conversationId, contextResetAt: new Date(Date.now() - 60_000) },
+      });
+      expect(await run(c)).toEqual({ status: 'drafted' });
+    });
+
+    describe('portão de idade (opcional)', () => {
+      const enable = (c: Ctx) =>
+        prisma.aiAgent.update({ where: { id: c.agentId }, data: { ageGate: true } });
+      const question = 'Antes de continuar: você tem 18 anos ou mais? Responda sim ou não.';
+
+      it('desligado por padrão: responde normalmente, sem perguntar a idade', async () => {
+        const c = await setup('REVIEW', 'Oi');
+        expect((await prisma.aiAgent.findUniqueOrThrow({ where: { id: c.agentId } })).ageGate).toBe(
+          false,
+        );
+        await run(c);
+        expect(chatCalls).toHaveLength(1);
+        expect((await prisma.aiDraft.findFirstOrThrow()).body).not.toContain('18 anos');
+      });
+
+      it('ligado: pergunta primeiro (sem chamar o modelo); "sim" libera e a conversa segue', async () => {
+        const c = await setup('AUTO', 'Oi');
+        await enable(c);
+        expect(await run(c)).toEqual({ status: 'sent' });
+        expect(chatCalls).toHaveLength(0);
+        expect(
+          (await prisma.message.findFirstOrThrow({ where: { direction: 'OUTBOUND' } })).body,
+        ).toBe(question);
+        expect((await prisma.aiConversationState.findFirstOrThrow()).ageAskedAt).not.toBeNull();
+
+        const yes = await nextInbound(c, 'sim');
+        expect(await run(yes)).toEqual({ status: 'sent' });
+        expect(chatCalls).toHaveLength(1);
+        expect((await prisma.aiConversationState.findFirstOrThrow()).ageConfirmedAt).not.toBeNull();
+
+        // confirmado uma vez: não pergunta de novo
+        const more = await nextInbound(c, 'quero um café', 10_000);
+        await run(more);
+        expect(chatCalls).toHaveLength(2);
+        const bodies = (await prisma.message.findMany({ where: { direction: 'OUTBOUND' } })).map(
+          (m) => m.body,
+        );
+        expect(bodies.filter((b) => b === question)).toHaveLength(1);
+      });
+
+      it('ligado: "não" ou idade abaixo de 18 trava a conversa e encerra', async () => {
+        for (const answer of ['não', 'tenho 16']) {
+          await truncateAll();
+          sent = [];
+          chatCalls = [];
+          const c = await setup('AUTO', 'Oi');
+          await enable(c);
+          await run(c);
+          await run(await nextInbound(c, answer));
+          const st = await prisma.aiConversationState.findFirstOrThrow();
+          expect(st, answer).toMatchObject({ paused: true, pausedBy: 'minor' });
+          const bodies = (
+            await prisma.message.findMany({
+              where: { direction: 'OUTBOUND' },
+              orderBy: { sentAt: 'asc' },
+            })
+          ).map((m) => m.body);
+          expect(bodies, answer).toEqual([question, 'Não posso continuar esta conversa.']);
+          expect(chatCalls, answer).toHaveLength(0);
+        }
+      });
+
+      it('ligado: resposta que não dá para entender repete a pergunta', async () => {
+        const c = await setup('AUTO', 'Oi');
+        await enable(c);
+        await run(c);
+        await run(await nextInbound(c, 'hm, depende'));
+        const bodies = (await prisma.message.findMany({ where: { direction: 'OUTBOUND' } })).map(
+          (m) => m.body,
+        );
+        expect(bodies).toEqual([question, question]);
+        expect((await prisma.aiConversationState.findFirstOrThrow()).ageConfirmedAt).toBeNull();
+        expect(chatCalls).toHaveLength(0);
+      });
+
+      it('ligado no modo revisão: a pergunta vira rascunho para o administrador aprovar', async () => {
+        const c = await setup('REVIEW', 'Oi');
+        await enable(c);
+        expect(await run(c)).toEqual({ status: 'drafted' });
+        expect((await prisma.aiDraft.findFirstOrThrow()).body).toBe(question);
+        expect(sent).toEqual([]);
+        expect(chatCalls).toHaveLength(0);
+      });
+    });
+  });
+
   describe('reiniciar contexto da conversa', () => {
     /** Conversa "suja": pergunta antiga, resposta de pessoa e memória dizendo que aguarda atendente. */
     const dirty = async (c: Ctx) => {

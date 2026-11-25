@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type {
   AgentDTO,
   AiConversationDTO,
+  AiGenerationDTO,
   AiKnowledgeSourceDTO,
   AiDraftDTO,
   AiUsageSummaryDTO,
@@ -34,6 +35,8 @@ export const aiKeys = {
   knowledge: (q: string) => ['ai', 'knowledge', q] as const,
   knowledgeDetail: (id: string) => ['ai', 'knowledge', 'detail', id] as const,
   agentKnowledge: (id: string) => ['ai', 'agent', id, 'knowledge'] as const,
+  generations: ['ai', 'generator'] as const,
+  generation: (id: string) => ['ai', 'generator', id] as const,
 };
 
 export function useAiSettings() {
@@ -195,6 +198,58 @@ export async function uploadKnowledgeFile(file: File, name: string): Promise<AiK
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error?.message ?? 'Não foi possível enviar o arquivo.');
   return data.source;
+}
+
+/** Gerações recentes do Gerador de Persona (sem o pacote). */
+export function useGenerations() {
+  return useQuery({
+    queryKey: aiKeys.generations,
+    queryFn: () => api<{ items: AiGenerationDTO[] }>('/ai/generator').then((r) => r.items),
+    refetchInterval: (q) =>
+      q.state.data?.some((g) => g.status === 'PENDING' || g.status === 'PROCESSING') ? 3000 : false,
+  });
+}
+
+/** Uma geração, atualizada sozinha enquanto está na fila ou processando. */
+export function useGeneration(id: string | null) {
+  return useQuery({
+    queryKey: aiKeys.generation(id ?? ''),
+    queryFn: () =>
+      api<{ generation: AiGenerationDTO }>(`/ai/generator/${id}`).then((r) => r.generation),
+    enabled: !!id,
+    refetchInterval: (q) =>
+      q.state.data?.status === 'PENDING' || q.state.data?.status === 'PROCESSING' ? 2500 : false,
+  });
+}
+
+/** Envia o pedido do Gerador de Persona (multipart: descrição, links, documentos e imagens). */
+export async function createGeneration(input: {
+  description: string;
+  model: string;
+  links: string[];
+  targetAgentId?: string;
+  docs: File[];
+  images: File[];
+}): Promise<AiGenerationDTO> {
+  const form = new FormData();
+  form.append('description', input.description);
+  form.append('model', input.model);
+  form.append('links', JSON.stringify(input.links));
+  if (input.targetAgentId) form.append('targetAgentId', input.targetAgentId);
+  for (const f of [...input.docs, ...input.images]) form.append('files', f);
+  const csrf = document.cookie
+    .split('; ')
+    .find((c) => c.startsWith('mz_csrf='))
+    ?.slice('mz_csrf='.length);
+  const res = await fetch('/api/ai/generator', {
+    method: 'POST',
+    body: form,
+    credentials: 'same-origin',
+    headers: csrf ? { 'x-csrf-token': csrf } : {},
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error?.message ?? 'Não foi possível enviar o pedido.');
+  return data.generation;
 }
 
 /** Mutação genérica do MultiZap AI: invalida os dados da área ao terminar. */

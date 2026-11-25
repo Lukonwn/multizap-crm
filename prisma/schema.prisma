@@ -844,6 +844,14 @@ enum AiDraftStatus {
 enum AiUsageContext {
   TEST
   LIVE
+  GENERATOR
+}
+
+enum AiGenerationStatus {
+  PENDING
+  PROCESSING
+  READY
+  ERROR
 }
 
 enum AiEventCategory {
@@ -935,6 +943,8 @@ model AiAgent {
   /// Mostra "digitando…" ao contato enquanto a resposta é realmente gerada (modo automático).
   showTyping         Boolean       @default(true) @map("show_typing")
   maxRepliesPerHour  Int           @default(10) @map("max_replies_per_hour")
+  /// Pergunta "você tem 18 anos ou mais?" antes de conversar (desligada por padrão; não verifica idade).
+  ageGate            Boolean       @default(false) @map("age_gate")
   publishedVersionId String?       @unique @map("published_version_id") @db.Uuid
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
@@ -1072,6 +1082,9 @@ model AiConversationState {
   enabledOverride Boolean   @default(false) @map("enabled_override")
   /// "Reiniciar contexto": a IA ignora histórico, memória e respostas humanas anteriores a este instante.
   contextResetAt  DateTime? @map("context_reset_at")
+  /// Portão de idade: quando a pergunta foi feita e quando o contato respondeu que é maior de 18.
+  ageAskedAt      DateTime? @map("age_asked_at")
+  ageConfirmedAt  DateTime? @map("age_confirmed_at")
   lastReplyAt     DateTime? @map("last_reply_at")
   lastSkip        String?   @map("last_skip")
   lastSkipAt      DateTime? @map("last_skip_at")
@@ -1188,4 +1201,30 @@ model AiAgentKnowledge {
   @@id([agentId, sourceId])
   @@index([sourceId])
   @@map("ai_agent_knowledge")
+}
+
+/// Gerador de Persona: um pedido (descrição, links, arquivos, imagens) e o pacote que o modelo devolveu.
+model AiGeneration {
+  id               String             @id @default(uuid()) @db.Uuid
+  status           AiGenerationStatus @default(PENDING)
+  error            String?
+  /// Modelo escolhido para gerar.
+  model            String
+  description      String
+  links            Json               @default("[]")
+  /// Arquivos enviados: [{ name, key, kind: doc|image, mime, size }]. Apagados do bucket ao terminar.
+  files            Json               @default("[]")
+  /// Agente a melhorar (sem chave estrangeira: o pedido sobrevive à exclusão do agente).
+  targetAgentId    String?            @map("target_agent_id") @db.Uuid
+  result           Json?
+  promptTokens     Int                @default(0) @map("prompt_tokens")
+  completionTokens Int                @default(0) @map("completion_tokens")
+  costUsd          Decimal?           @map("cost_usd") @db.Decimal(14, 8)
+  costConfirmed    Boolean            @default(false) @map("cost_confirmed")
+  appliedAt        DateTime?          @map("applied_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("ai_generations")
 }

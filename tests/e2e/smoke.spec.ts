@@ -136,6 +136,13 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
 
   await page.goto('/ai/personas');
   await page.getByRole('link', { name: 'Nova persona' }).click();
+  // Menu aberto dos campos de seleção: opções com fundo escuro e letra clara (não a lista branca do navegador).
+  const optionColors = await page.getByLabel('Formalidade').evaluate((el) => {
+    const o = (el as HTMLSelectElement).options[0]!;
+    const st = getComputedStyle(o);
+    return { bg: st.backgroundColor, fg: st.color };
+  });
+  expect(optionColors).toEqual({ bg: 'rgb(23, 32, 42)', fg: 'rgb(245, 247, 250)' });
   await page.getByLabel('Nome', { exact: true }).fill('Ana E2E');
   await page.getByLabel('Tom de voz').fill('Acolhedor e direto');
   await page.getByRole('button', { name: 'Criar' }).click();

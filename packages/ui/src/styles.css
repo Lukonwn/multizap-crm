@@ -71,6 +71,25 @@
   html {
     color-scheme: dark;
   }
+  /*
+   * Menu aberto dos campos de seleção: o navegador (Chrome no Windows) ignora o tema escuro quando
+   * o campo tem fundo próprio e desenha a lista branca, com a letra clara do campo (ilegível).
+   * As opções recebem as cores do tema de forma explícita.
+   */
+  select {
+    color-scheme: dark;
+  }
+  select option,
+  select optgroup {
+    background-color: var(--color-surface-2);
+    color: var(--color-fg);
+  }
+  select option:checked {
+    background-color: var(--color-surface-3);
+  }
+  select option:disabled {
+    color: var(--color-subtle);
+  }
   body {
     background: var(--color-bg);
     color: var(--color-fg);

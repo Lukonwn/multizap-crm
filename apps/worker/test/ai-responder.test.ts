@@ -285,6 +285,90 @@ describe('MultiZap AI: atendimento', () => {
     });
   });
 
+  describe('reiniciar contexto da conversa', () => {
+    /** Conversa "suja": pergunta antiga, resposta de pessoa e memória dizendo que aguarda atendente. */
+    const dirty = async (c: Ctx) => {
+      const mk = (id: string, direction: 'INBOUND' | 'OUTBOUND', body: string, ago: number) =>
+        prisma.message.create({
+          data: {
+            accountId: c.accountId,
+            conversationId: c.conversationId,
+            providerMessageId: id,
+            direction,
+            type: 'text',
+            body,
+            status: direction === 'INBOUND' ? 'RECEIVED' : 'SENT',
+            sentAt: new Date(Date.now() - ago),
+          },
+        });
+      await mk('old-in', 'INBOUND', 'Quanto custa o frete antigo?', 3 * 3_600_000);
+      await mk('old-human', 'OUTBOUND', 'Vou chamar um atendente para você', 2 * 3_600_000);
+      await prisma.aiConversationState.create({
+        data: {
+          conversationId: c.conversationId,
+          memory: 'Contato aguarda atendente humano.',
+          memoryAgentId: c.agentId,
+          memoryUpdatedAt: new Date(Date.now() - 3_600_000),
+        },
+      });
+    };
+
+    it('controle: sem reinício, a resposta de pessoa recente faz a IA se afastar', async () => {
+      const c = await setup('REVIEW', 'Oi, quero um café');
+      await dirty(c);
+      expect(await run(c)).toMatchObject({
+        status: 'skipped',
+        reason: 'Uma pessoa respondeu esta conversa',
+      });
+      expect(chatCalls).toHaveLength(0);
+    });
+
+    it('depois do reinício, a IA ignora histórico, memória e respostas humanas anteriores', async () => {
+      const c = await setup('REVIEW', 'Oi, quero um café');
+      await dirty(c);
+      await prisma.aiConversationState.update({
+        where: { conversationId: c.conversationId },
+        data: {
+          contextResetAt: new Date(Date.now() - 60_000),
+          memory: null,
+          memoryAgentId: null,
+          memoryUpdatedAt: null,
+        },
+      });
+      expect(await run(c)).toEqual({ status: 'drafted' });
+      const msgs = chatCalls[0]!.body.messages;
+      expect(msgs.slice(1).map((m) => m.content)).toEqual(['Oi, quero um café']);
+      expect(msgs[0]!.content).not.toContain('aguarda atendente');
+      expect(JSON.stringify(msgs)).not.toContain('frete antigo');
+    });
+
+    it('uma pessoa que responder DEPOIS do reinício ainda faz a IA se afastar', async () => {
+      const c = await setup('REVIEW', 'Oi, quero um café');
+      await prisma.aiConversationState.create({
+        data: {
+          conversationId: c.conversationId,
+          contextResetAt: new Date(Date.now() - 3_600_000),
+        },
+      });
+      await prisma.message.create({
+        data: {
+          accountId: c.accountId,
+          conversationId: c.conversationId,
+          providerMessageId: 'human-after-reset',
+          direction: 'OUTBOUND',
+          type: 'text',
+          body: 'Oi, sou o João',
+          status: 'SENT',
+          sentAt: new Date(Date.now() - 1_800_000),
+        },
+      });
+      expect(await run(c)).toMatchObject({
+        status: 'skipped',
+        reason: 'Uma pessoa respondeu esta conversa',
+      });
+    });
+  });
+
   it('sem "digitando" quando o agente desliga o recurso', async () => {
     const c = await setup('AUTO');
     await prisma.aiAgent.update({ where: { id: c.agentId }, data: { showTyping: false } });

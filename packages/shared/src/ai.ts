@@ -327,6 +327,8 @@ export interface AiConversationDTO {
   reason: string | null;
   pausedBy: string | null;
   enabledOverride: boolean;
+  /** Quando o contexto da IA foi reiniciado nesta conversa (ela ignora o que veio antes). */
+  contextResetAt: string | null;
   pendingDrafts: number;
   agentName: string | null;
 }

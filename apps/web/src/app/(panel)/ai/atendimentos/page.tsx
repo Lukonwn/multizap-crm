@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Bot, Check, MessageSquare, Pause, Play, Trash2, UserRound } from 'lucide-react';
+import { Bot, Check, MessageSquare, Pause, Play, RotateCcw, Trash2, UserRound } from 'lucide-react';
 import { formatPhone, type AiConversationDTO, type AiConversationState } from '@multizap/shared';
 import {
   Alert,
@@ -138,7 +138,7 @@ function DraftBox({ conversationId }: { conversationId: string }) {
 function Detail({ c }: { c: AiConversationDTO }) {
   const act = useAiMutation();
   const s = STATE[c.state];
-  const set = (json: { paused?: boolean; enabled?: boolean }) =>
+  const set = (json: { paused?: boolean; enabled?: boolean; resetContext?: true }) =>
     act.mutate({ path: `/ai/conversations/${c.id}/state`, method: 'PUT', json });
   return (
     <div className="space-y-4">
@@ -161,6 +161,12 @@ function Detail({ c }: { c: AiConversationDTO }) {
             <> A IA só volta a responder quando você retomar.</>
           )}
         </Alert>
+      )}
+      {c.contextResetAt && (
+        <p className="text-xs text-subtle">
+          Contexto reiniciado em {formatDateTime(c.contextResetAt)}: a IA ignora o que veio antes
+          desse momento.
+        </p>
       )}
       {act.error && <Alert tone="danger">{(act.error as Error).message}</Alert>}
       <div className="flex flex-wrap gap-2">
@@ -188,6 +194,22 @@ function Detail({ c }: { c: AiConversationDTO }) {
             <Bot className="h-3.5 w-3.5" /> Liberar a IA mesmo assim
           </Button>
         )}
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={act.isPending}
+          onClick={() => {
+            if (
+              !window.confirm(
+                'Reiniciar o contexto da IA nesta conversa? A IA vai ignorar tudo o que veio antes (histórico, memória e respostas de pessoas) e voltar a atender a partir de agora. As mensagens continuam visíveis na Central.',
+              )
+            )
+              return;
+            set({ resetContext: true });
+          }}
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Reiniciar contexto da IA
+        </Button>
         {c.enabledOverride && (
           <Button size="sm" variant="ghost" onClick={() => set({ enabled: false })}>
             Desfazer liberação

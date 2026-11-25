@@ -495,3 +495,8 @@
 - Nova fila `ai-knowledge` no worker e migração reversível `20261127120000_ai_knowledge` (só tabelas novas).
 - Testes: 8 do pacote de IA, 17 do processamento, SSRF e busca, 5 do atendimento com base, 11 de rotas; 14 de ponta a ponta.
 - Passo de implantação: nenhuma variável nova. O worker precisa continuar com `CREDENTIALS_MASTER_KEY`.
+
+## MultiZap AI: reiniciar contexto da conversa ✅
+
+- Em **Atendimentos**, o botão **Reiniciar contexto da IA** faz a IA ignorar o histórico, a memória e as respostas de pessoas anteriores naquela conversa e voltar a atendê-la, sem apagar nenhuma mensagem. Pede confirmação, entra na auditoria e mostra quando foi feito.
+- Migração reversível `20261128120000_ai_context_reset` (uma coluna nova em `ai_conversation_states`).

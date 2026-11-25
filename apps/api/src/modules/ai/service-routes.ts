@@ -314,6 +314,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
           reason,
           pausedBy: c.aiState?.paused ? c.aiState.pausedBy : null,
           enabledOverride: c.aiState?.enabledOverride ?? false,
+          contextResetAt: c.aiState?.contextResetAt?.toISOString() ?? null,
           pendingDrafts: pending,
           agentName: c.account.aiAgentLinks[0]?.agent.name ?? null,
         };
@@ -328,8 +329,16 @@ export async function aiServiceRoutes(app: FastifyInstance) {
     const { id } = parse(idParams, req.params);
     const body = parse(
       z
-        .object({ paused: z.boolean().optional(), enabled: z.boolean().optional() })
-        .refine((b) => b.paused !== undefined || b.enabled !== undefined, 'Nada para alterar.'),
+        .object({
+          paused: z.boolean().optional(),
+          enabled: z.boolean().optional(),
+          /** Recomeçar do zero: a IA ignora o que veio antes (histórico, memória, respostas humanas). */
+          resetContext: z.literal(true).optional(),
+        })
+        .refine(
+          (b) => b.paused !== undefined || b.enabled !== undefined || b.resetContext,
+          'Nada para alterar.',
+        ),
       req.body,
     );
     const conv = await prisma.conversation.findUnique({
@@ -355,6 +364,20 @@ export async function aiServiceRoutes(app: FastifyInstance) {
         lastSkip: null,
         lastSkipAt: null,
       });
+    if (body.resetContext)
+      // Recomeço: ponto de corte agora, memória apagada e a IA volta a atender a conversa.
+      Object.assign(data, {
+        contextResetAt: at,
+        memory: null,
+        memoryAgentId: null,
+        memoryUpdatedAt: null,
+        paused: false,
+        pausedBy: null,
+        pausedReason: null,
+        pausedAt: null,
+        lastSkip: null,
+        lastSkipAt: null,
+      });
     if (body.enabled !== undefined) {
       data.enabledOverride = body.enabled;
       if (body.enabled) Object.assign(data, { lastSkip: null, lastSkipAt: null });
@@ -368,7 +391,11 @@ export async function aiServiceRoutes(app: FastifyInstance) {
       update: data,
     });
     await audit(prisma, req, {
-      action: body.paused === true ? 'ai.conversation_paused' : 'ai.conversation_resumed',
+      action: body.resetContext
+        ? 'ai.conversation_context_reset'
+        : body.paused === true
+          ? 'ai.conversation_paused'
+          : 'ai.conversation_resumed',
       actorId: actor(req).id,
       entityType: 'conversation',
       entityId: id,

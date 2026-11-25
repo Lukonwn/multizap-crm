@@ -1070,6 +1070,8 @@ model AiConversationState {
   pausedAt        DateTime? @map("paused_at")
   /// Liberação manual: atende mesmo após campanha recente.
   enabledOverride Boolean   @default(false) @map("enabled_override")
+  /// "Reiniciar contexto": a IA ignora histórico, memória e respostas humanas anteriores a este instante.
+  contextResetAt  DateTime? @map("context_reset_at")
   lastReplyAt     DateTime? @map("last_reply_at")
   lastSkip        String?   @map("last_skip")
   lastSkipAt      DateTime? @map("last_skip_at")

@@ -164,7 +164,11 @@ export class AiResponder {
 
     // Uma pessoa respondeu (pela Central ou pelo celular): a IA se afasta.
     const humanSince = new Date(
-      Math.max(this.now() - AI_HUMAN_WINDOW_HOURS * HOUR, state?.lastReplyAt?.getTime() ?? 0),
+      Math.max(
+        this.now() - AI_HUMAN_WINDOW_HOURS * HOUR,
+        state?.lastReplyAt?.getTime() ?? 0,
+        state?.contextResetAt?.getTime() ?? 0,
+      ),
     );
     const human = await prisma.message.findFirst({
       where: {
@@ -201,7 +205,7 @@ export class AiResponder {
     const client = await this.client(agent.id);
     if (!client) return skip('IA sem chave da OpenRouter utilizável');
 
-    const history = await this.history(conv.id);
+    const history = await this.history(conv.id, state?.contextResetAt);
     const memory =
       spec.agent.memoryEnabled && state?.memory && state.memoryAgentId === agent.id
         ? state.memory
@@ -391,12 +395,15 @@ export class AiResponder {
 
   // ─── apoio ──────────────────────────────────────────────────────────────
 
+  /** Últimas mensagens de texto da conversa; só as posteriores ao "reiniciar contexto", se houver. */
   private async history(
     conversationId: string,
+    since?: Date | null,
   ): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId,
+        ...(since && { sentAt: { gt: since } }),
         type: 'text',
         body: { not: null },
         status: { not: 'FAILED' },
@@ -530,12 +537,15 @@ export class AiResponder {
   ) {
     if (!spec.agent.memoryEnabled) return;
     const state = await this.prisma.aiConversationState.findUnique({ where: { conversationId } });
-    const since = state?.memoryAgentId === agentId ? state.memoryUpdatedAt : null;
+    const memorySince = state?.memoryAgentId === agentId ? state.memoryUpdatedAt : null;
+    const reset = state?.contextResetAt ?? null;
+    const since =
+      memorySince && reset ? (memorySince > reset ? memorySince : reset) : (memorySince ?? reset);
     const fresh = await this.prisma.message.count({
-      where: { conversationId, type: 'text', ...(since && { createdAt: { gt: since } }) },
+      where: { conversationId, type: 'text', ...(since && { sentAt: { gt: since } }) },
     });
     if (fresh < MEMORY_EVERY) return;
-    const transcript = (await this.history(conversationId))
+    const transcript = (await this.history(conversationId, reset))
       .map((m) => `${m.role === 'user' ? 'Contato' : 'Atendente'}: ${m.content}`)
       .join('\n');
     const previous = state?.memoryAgentId === agentId ? state.memory : null;

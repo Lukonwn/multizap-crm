@@ -204,6 +204,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'ai.draft_discarded': 'Resposta da IA descartada',
   'ai.conversation_paused': 'IA pausada em uma conversa',
   'ai.conversation_resumed': 'IA retomada em uma conversa',
+  'ai.conversation_context_reset': 'Contexto da IA reiniciado em uma conversa',
   'conversation.closed': 'Conversa finalizada',
   'conversation.reopened': 'Conversa reaberta',
 };

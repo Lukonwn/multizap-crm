@@ -291,6 +291,55 @@ describe('controle da IA por conversa', () => {
     );
   });
 
+  it('reiniciar contexto: corta o passado, apaga a memória e volta a atender a conversa', async () => {
+    const w = await world();
+    await send('POST', `/ai/agents/${w.agent.id}/activate`);
+    await prisma.aiConversationState.create({
+      data: {
+        conversationId: w.conv.id,
+        paused: true,
+        pausedBy: 'human',
+        pausedReason: 'Uma pessoa respondeu esta conversa',
+        pausedAt: new Date(),
+        lastSkip: 'Uma pessoa respondeu esta conversa',
+        memory: 'Contato aguarda atendente.',
+        memoryAgentId: w.agent.id,
+        memoryUpdatedAt: new Date(),
+        enabledOverride: true,
+      },
+    });
+    const before = Date.now();
+    const r = await send('PUT', `/ai/conversations/${w.conv.id}/state`, { resetContext: true });
+    expect(r.statusCode).toBe(200);
+    const st = await prisma.aiConversationState.findUniqueOrThrow({
+      where: { conversationId: w.conv.id },
+    });
+    expect(st.contextResetAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(st).toMatchObject({
+      memory: null,
+      memoryAgentId: null,
+      memoryUpdatedAt: null,
+      paused: false,
+      pausedBy: null,
+      lastSkip: null,
+      enabledOverride: true, // liberação manual de campanha é outra escolha: não é desfeita
+    });
+    const items = (await get('/ai/conversations')).json().items as AiConversationDTO[];
+    expect(items[0]).toMatchObject({
+      state: 'serving',
+      contextResetAt: st.contextResetAt!.toISOString(),
+    });
+    // as mensagens da conversa continuam todas lá
+    expect(await prisma.message.count({ where: { conversationId: w.conv.id } })).toBe(1);
+    expect((await prisma.auditLog.findMany()).map((a) => a.action)).toContain(
+      'ai.conversation_context_reset',
+    );
+    expect(
+      (await send('PUT', `/ai/conversations/${w.conv.id}/state`, { resetContext: false }))
+        .statusCode,
+    ).toBe(400);
+  });
+
   it('conversas de instâncias sem agente ativo não aparecem', async () => {
     await world();
     expect((await get('/ai/conversations')).json().items).toHaveLength(0);

@@ -1,6 +1,6 @@
 # ADR 0007: MultiZap AI (agentes de IA no atendimento)
 
-**Status:** aceito (Entregas 1 e 2 implementadas; 3 a 5 planejadas)
+**Status:** aceito (Entregas 1 a 3 implementadas; 4 e 5 planejadas)
 
 ## Contexto
 
@@ -34,6 +34,18 @@ O administrador quer agentes de IA que atendam pelo WhatsApp com personas própr
 - **Consumo real** (`context = LIVE`) por agente, instância e conversa, separado do uso de testes.
 - **Migração** `20261126120000_ai_service`: só tabelas `ai_*` (novas) e colunas novas em tabelas `ai_*`; reversão em [`docs/migrations/20261126120000_ai_service.down.sql`](../migrations/20261126120000_ai_service.down.sql).
 - **Requisito de implantação:** o worker precisa da mesma `CREDENTIALS_MASTER_KEY` da API para ler a chave da OpenRouter. Sem ela, o agente não responde e registra um evento claro.
+
+## Entrega 3: base de conhecimento
+
+- **Fontes:** texto digitado, pergunta e resposta, arquivo (PDF, DOCX, TXT, MD, CSV, até 10 MB) e link. Até 200 fontes. Cada fonte tem situação (na fila, processando, pronta, com erro), pode ser desligada, editada (texto e perguntas), reprocessada e excluída (com confirmação do nome). A exclusão apaga trechos, vínculos e o arquivo do bucket.
+- **Processamento no worker** (fila `ai-knowledge`): extrai o texto, divide em trechos de ~900 caracteres (respeitando parágrafos, com pequena sobreposição, no máximo 300 por fonte) e grava em `ai_knowledge_chunks`. Falhas viram mensagem clara na própria fonte (ex.: "PDF sem texto selecionável") e um evento do System Health. Uma fonte presa em "processando" por mais de 10 minutos (worker que caiu) é retomada.
+- **Busca:** índice de texto do PostgreSQL em português (`to_tsvector('portuguese', …)`, índice GIN por expressão, sem coluna gerada para o backup continuar a restaurar a tabela por `COPY`), consulta "qualquer um dos termos" montada só com letras e números a partir das duas últimas mensagens do contato, no máximo 4 trechos e ~3.600 caracteres no prompt. Sem serviço de vetores (decisão E).
+- **Quem usa o quê:** cada agente liga as fontes que pode usar (`ai_agent_knowledge`). O vínculo vale na hora, sem publicar. Só entram fontes ligadas, habilitadas e prontas.
+- **Sem invenção:** com trechos, o prompt os apresenta como fonte principal; com base ligada mas **sem trecho correspondente**, o prompt diz que a base não tem a informação e manda não inventar e oferecer um atendente. Agente sem base responde como antes.
+- **Transparência:** o laboratório mostra os trechos usados em cada resposta; rascunhos e respostas automáticas guardam em `ai_drafts.sources` em quais fontes se basearam, exibido em Atendimentos ("Baseada em…" ou aviso de que não houve base).
+- **Links e SSRF:** o servidor só lê páginas públicas http/https (portas 80 e 443, sem usuário e senha, só HTML e texto, até 2 MB, 15 s, 3 redirecionamentos). O nome é resolvido uma vez, **todos** os endereços são validados e a conexão usa o endereço validado (sem nova consulta de DNS); endereços escritos como número são validados antes de qualquer conexão (o Node não consulta o DNS para eles), inclusive formas como `2130706433`, `0x7f.0.0.1` e `::ffff:7f00:1`; cada redirecionamento passa pela mesma checagem. Bloqueia rede local, loopback, link-local (metadados de nuvem), CGNAT, multicast e IPv6 interno. O texto da página é lido uma vez; para atualizar, "Reprocessar".
+- **Arquivos** ficam no bucket (`ai/knowledge/`), nunca no disco do container; o texto extraído fica no banco e entra no backup. O arquivo original **não** entra no backup do sistema (está no bucket).
+- **Migração** `20261127120000_ai_knowledge`: só tabelas novas (`ai_knowledge_sources`, `ai_knowledge_chunks`, `ai_agent_knowledge`) e a coluna `ai_drafts.sources`; reversão em [`docs/migrations/20261127120000_ai_knowledge.down.sql`](../migrations/20261127120000_ai_knowledge.down.sql).
 
 ## Migração
 

@@ -90,6 +90,11 @@ function DraftBox({ conversationId }: { conversationId: string }) {
               {d.inboundText && (
                 <p className="text-xs text-muted">Em resposta a: “{d.inboundText}”</p>
               )}
+              <p className="text-xs text-subtle">
+                {d.sources.length
+                  ? `Baseada em: ${[...new Set(d.sources.map((x) => x.name))].join(', ')}`
+                  : 'Sem base de conhecimento nesta resposta: confira os fatos antes de enviar.'}
+              </p>
               <Textarea
                 aria-label="Resposta sugerida"
                 rows={4}

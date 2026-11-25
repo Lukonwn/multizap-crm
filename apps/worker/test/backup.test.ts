@@ -117,6 +117,25 @@ async function seed() {
     data: { publishedVersionId: version.id },
   });
   await prisma.aiAgentAccount.create({ data: { agentId: agent.id, accountId: a.id } });
+  // Base de conhecimento: fonte, trecho (com acentos) e vínculo com o agente.
+  const kb = await prisma.aiKnowledgeSource.create({
+    data: {
+      name: 'Políticas',
+      kind: 'TEXT',
+      content: 'Troca em até 7 dias.',
+      status: 'READY',
+      chunkCount: 1,
+    },
+  });
+  await prisma.aiKnowledgeChunk.create({
+    data: {
+      sourceId: kb.id,
+      position: 0,
+      title: 'Trocas',
+      content: 'Aceitamos trocas em até 7 dias.',
+    },
+  });
+  await prisma.aiAgentKnowledge.create({ data: { agentId: agent.id, sourceId: kb.id } });
   await main.put('assets/banner.png', Buffer.from([1, 2, 3]));
   await main.put('media/inbox/foto.jpg', Buffer.from('jpeg'));
   await main.put('tools/uploads/temp.csv', Buffer.from('nao vai para o backup'));

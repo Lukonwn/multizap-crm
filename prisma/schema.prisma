@@ -820,6 +820,20 @@ enum AiAgentStatus {
   ERROR
 }
 
+enum AiKnowledgeKind {
+  TEXT
+  QA
+  FILE
+  LINK
+}
+
+enum AiKnowledgeStatus {
+  PENDING
+  PROCESSING
+  READY
+  ERROR
+}
+
 enum AiDraftStatus {
   PENDING
   SENT
@@ -925,15 +939,16 @@ model AiAgent {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  persona          AiPersona        @relation(fields: [personaId], references: [id], onDelete: Restrict)
-  versions         AiAgentVersion[] @relation("AgentVersions")
-  publishedVersion AiAgentVersion?  @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  persona          AiPersona          @relation(fields: [personaId], references: [id], onDelete: Restrict)
+  versions         AiAgentVersion[]   @relation("AgentVersions")
+  publishedVersion AiAgentVersion?    @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
   accounts         AiAgentAccount[]
   testSessions     AiTestSession[]
   usage            AiTokenUsage[]
   events           AiAgentEvent[]
   drafts           AiDraft[]
   messageLinks     AiMessageLink[]
+  knowledge        AiAgentKnowledge[]
 
   @@index([status])
   @@map("ai_agents")
@@ -1083,6 +1098,8 @@ model AiDraft {
   sentBody         String?       @map("sent_body")
   messageId        String?       @map("message_id") @db.Uuid
   autoSent         Boolean       @default(false) @map("auto_sent")
+  /// Trechos da base de conhecimento usados na resposta: [{ sourceId, name, snippet }].
+  sources          Json          @default("[]")
   decidedAt        DateTime?     @map("decided_at")
   createdAt        DateTime      @default(now()) @map("created_at")
 
@@ -1108,4 +1125,65 @@ model AiMessageLink {
 
   @@index([agentId, createdAt])
   @@map("ai_message_links")
+}
+
+/// Fonte da base de conhecimento (texto, pergunta e resposta, arquivo ou link).
+model AiKnowledgeSource {
+  id          String            @id @default(uuid()) @db.Uuid
+  name        String
+  kind        AiKnowledgeKind
+  status      AiKnowledgeStatus @default(PENDING)
+  error       String?
+  enabled     Boolean           @default(true)
+  /// TEXT: o texto. QA: a resposta.
+  content     String?
+  /// QA: a pergunta.
+  question    String?
+  /// FILE: chave no bucket e dados do arquivo original.
+  storageKey  String?           @map("storage_key")
+  fileName    String?           @map("file_name")
+  mimeType    String?           @map("mime_type")
+  sizeBytes   Int?              @map("size_bytes")
+  /// LINK
+  url         String?
+  chunkCount  Int               @default(0) @map("chunk_count")
+  processedAt DateTime?         @map("processed_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  chunks AiKnowledgeChunk[]
+  agents AiAgentKnowledge[]
+
+  @@index([status])
+  @@map("ai_knowledge_sources")
+}
+
+/// Trecho pesquisável de uma fonte. A busca usa o índice de texto do PostgreSQL (português),
+/// criado na migração (índice por expressão, que o Prisma não representa).
+model AiKnowledgeChunk {
+  id        String   @id @default(uuid()) @db.Uuid
+  sourceId  String   @map("source_id") @db.Uuid
+  position  Int
+  title     String?
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  source AiKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, position])
+  @@map("ai_knowledge_chunks")
+}
+
+/// Fontes que cada agente pode usar.
+model AiAgentKnowledge {
+  agentId   String   @map("agent_id") @db.Uuid
+  sourceId  String   @map("source_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent  AiAgent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  source AiKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, sourceId])
+  @@index([sourceId])
+  @@map("ai_agent_knowledge")
 }

@@ -24,3 +24,4 @@ export {
   type NotifyInput,
   type SystemEventLevel,
 } from './system';
+export { searchKnowledge, hasKnowledge, type KnowledgeRow } from './ai-knowledge';

@@ -2,7 +2,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
 import type { StorageDriver } from '@multizap/storage';
-import type { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from './lib/queues';
+import type {
+  CampaignQueue,
+  ImportQueue,
+  KnowledgeQueue,
+  SystemQueues,
+  ToolQueue,
+} from './lib/queues';
 import { campaignRoutes } from './modules/campaigns/routes';
 import { inboxRoutes } from './modules/inbox/routes';
 import { reportRoutes } from './modules/reports/routes';
@@ -27,6 +33,7 @@ import type { GatewayClient } from './lib/gateway';
 import type { CredentialCipher } from '@multizap/shared/crypto';
 import { aiRoutes } from './modules/ai/routes';
 import { aiServiceRoutes } from './modules/ai/service-routes';
+import { aiKnowledgeRoutes } from './modules/ai/knowledge-routes';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -37,6 +44,7 @@ declare module 'fastify' {
     storage: StorageDriver | null;
     importQueue: ImportQueue | null;
     toolQueue: ToolQueue | null;
+    knowledgeQueue: KnowledgeQueue | null;
     campaignQueue: CampaignQueue | null;
     systemQueues: SystemQueues | null;
     /** Cifra das credenciais (chave da OpenRouter). Null sem CREDENTIALS_MASTER_KEY. */
@@ -54,6 +62,7 @@ export interface BuildDeps {
   storage?: StorageDriver | null;
   importQueue?: ImportQueue | null;
   toolQueue?: ToolQueue | null;
+  knowledgeQueue?: KnowledgeQueue | null;
   campaignQueue?: CampaignQueue | null;
   systemQueues?: SystemQueues | null;
   cipher?: CredentialCipher | null;
@@ -69,6 +78,7 @@ export async function buildApp({
   storage = null,
   importQueue = null,
   toolQueue = null,
+  knowledgeQueue = null,
   campaignQueue = null,
   systemQueues = null,
   cipher = null,
@@ -102,6 +112,7 @@ export async function buildApp({
   app.decorate('storage', storage);
   app.decorate('importQueue', importQueue);
   app.decorate('toolQueue', toolQueue);
+  app.decorate('knowledgeQueue', knowledgeQueue);
   app.decorate('campaignQueue', campaignQueue);
   app.decorate('systemQueues', systemQueues);
   app.decorate('cipher', cipher);
@@ -165,6 +176,7 @@ export async function buildApp({
   await app.register(deviceContactRoutes);
   await app.register(aiRoutes);
   await app.register(aiServiceRoutes);
+  await app.register(aiKnowledgeRoutes);
 
   return app;
 }

@@ -7,7 +7,13 @@ import { buildApp } from '../src/app';
 import { CredentialCipher } from '@multizap/shared/crypto';
 import { randomBytes } from 'node:crypto';
 import { GatewayClient } from '../src/lib/gateway';
-import { CampaignQueue, ImportQueue, SystemQueues, ToolQueue } from '../src/lib/queues';
+import {
+  CampaignQueue,
+  ImportQueue,
+  KnowledgeQueue,
+  SystemQueues,
+  ToolQueue,
+} from '../src/lib/queues';
 import { LocalStorage } from '@multizap/storage';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +34,7 @@ export async function setupTestApp(
   storage: LocalStorage;
   importQueue: ImportQueue;
   toolQueue: ToolQueue;
+  knowledgeQueue: KnowledgeQueue;
   campaignQueue: CampaignQueue;
   systemQueues: SystemQueues;
 }> {
@@ -48,6 +55,7 @@ export async function setupTestApp(
   const storage = new LocalStorage(mkdtempSync(join(tmpdir(), 'mz-api-')));
   const importQueue = new ImportQueue(config.redisUrl!, 'mztest');
   const toolQueue = new ToolQueue(config.redisUrl!, 'mztest');
+  const knowledgeQueue = new KnowledgeQueue(config.redisUrl!, 'mztest');
   const campaignQueue = new CampaignQueue(config.redisUrl!, 'mztest');
   const systemQueues = new SystemQueues(config.redisUrl!, 'mztest');
   const app = await buildApp({
@@ -58,6 +66,7 @@ export async function setupTestApp(
     storage,
     importQueue,
     toolQueue,
+    knowledgeQueue,
     campaignQueue,
     systemQueues,
     cipher: new CredentialCipher(new Map([[1, randomBytes(32)]]), 1),
@@ -68,6 +77,7 @@ export async function setupTestApp(
     await gateway.close();
     await importQueue.close();
     await toolQueue.close();
+    await knowledgeQueue.close();
     await campaignQueue.close();
     await systemQueues.close();
   });
@@ -80,6 +90,7 @@ export async function setupTestApp(
     storage,
     importQueue,
     toolQueue,
+    knowledgeQueue,
     campaignQueue,
     systemQueues,
   };

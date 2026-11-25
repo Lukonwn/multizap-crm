@@ -31,6 +31,7 @@ const MODULES = [
   ['/relatorios', 'Relatórios'],
   ['/ai/agentes', 'MultiZap AI'],
   ['/ai/atendimentos', 'MultiZap AI'],
+  ['/ai/conhecimento', 'MultiZap AI'],
   ['/system-health', 'System Health'],
   ['/configuracoes', 'Configurações'],
 ] as const;
@@ -143,6 +144,17 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
   await page.getByRole('button', { name: 'Salvar alterações' }).click();
   await expect(page.getByText(/Alterado: .*tom de voz/i)).toBeVisible();
 
+  // Base de conhecimento: o worker real lê a fonte e ela fica pronta para uso.
+  await page.goto('/ai/conhecimento');
+  await expect(page.getByText('Nenhum conhecimento ainda')).toBeVisible();
+  await page.getByRole('button', { name: 'Adicionar conhecimento' }).first().click();
+  await page.getByRole('tab', { name: 'Pergunta e resposta' }).click();
+  await page.getByLabel('Pergunta').fill('Qual o prazo de entrega?');
+  await page.getByLabel('Resposta').fill('Entregamos em até 3 dias úteis.');
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect(page.locator('span', { hasText: /^Pronta$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Qual o prazo de entrega?').first()).toBeVisible();
+
   await page.goto('/ai/agentes');
   await page.getByRole('button', { name: 'Novo agente' }).click();
   await page.getByLabel('Nome do agente').fill('Atendente E2E');
@@ -155,6 +167,10 @@ test('MultiZap AI: persona, agente, publicação e laboratório sem enviar nada'
     'true',
   );
   await expect(page.getByRole('button', { name: /Ativar/ })).toBeDisabled();
+
+  await page.getByRole('checkbox', { name: /Qual o prazo de entrega/ }).check();
+  await page.getByRole('button', { name: 'Salvar conhecimento' }).click();
+  await expect(page.getByText('Salvo.', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Publicar versão' }).click();
   await expect(page.getByText('Publicada: v1')).toBeVisible();

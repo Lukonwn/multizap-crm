@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import { Worker, type Job } from 'bullmq';
 import { getPrisma } from '@multizap/database';
 import {
+  AI_KNOWLEDGE_QUEUE,
   AI_QUEUE,
   GATEWAY_QUEUE,
   HEARTBEAT_KEYS,
@@ -12,6 +13,7 @@ import {
   CAMPAIGNS_QUEUE,
   MAINTENANCE_QUEUE,
   type AiInboundJob,
+  type AiKnowledgeJob,
   type CampaignJob,
   type GatewayCommand,
   type MaintenanceJob,
@@ -26,6 +28,7 @@ import { ToolJobProcessor } from './tools/processor';
 import { CampaignPreparer } from './campaigns/preparer';
 import { MetricsRollup } from './metrics/rollup';
 import { AiResponder } from './ai/responder';
+import { KnowledgeProcessor } from './ai/knowledge/processor';
 import {
   assertTimezone,
   isOperationsPaused,
@@ -158,6 +161,20 @@ const aiWorker = new Worker<AiInboundJob>(
 );
 aiWorker.on('failed', (job, err) => {
   log('Atendimento da IA falhou', { messageId: job?.data.messageId, err: err.message });
+});
+
+// Base de conhecimento: lê arquivos e links e os divide em trechos pesquisáveis.
+const knowledge = new KnowledgeProcessor(prisma, storage, log);
+const knowledgeWorker = new Worker<AiKnowledgeJob>(
+  AI_KNOWLEDGE_QUEUE,
+  async (job) => {
+    log('Processando fonte de conhecimento', { sourceId: job.data.sourceId });
+    await knowledge.process(job.data.sourceId);
+  },
+  { connection: redis.duplicate(), prefix, concurrency: 2 },
+);
+knowledgeWorker.on('failed', (job, err) => {
+  log('Fonte de conhecimento falhou', { sourceId: job?.data.sourceId, err: err.message });
 });
 
 const preparer = new CampaignPreparer(prisma, log);
@@ -401,6 +418,7 @@ onShutdown(async () => {
     toolWorker.close(),
     campaignWorker.close(),
     aiWorker.close(),
+    knowledgeWorker.close(),
     gatewayQueue.close(),
     campaignQueue.close(),
   ]);

@@ -484,3 +484,14 @@
 - Novas tabelas `ai_conversation_states`, `ai_drafts` e `ai_message_links`; migração reversível.
 - Testes: 17 do respondedor (worker), 10 de rotas e 4 do gateway; 14 de ponta a ponta.
 - Passo de implantação: `CREDENTIALS_MASTER_KEY` também no **multizap-worker**.
+
+## MultiZap AI: Entrega 3 (base de conhecimento) ✅
+
+- Nova aba **Conhecimento**: adicionar textos, perguntas e respostas, arquivos (PDF, DOCX, TXT, MD, CSV) e links; ver a situação (na fila, processando, pronta, com erro), ver os trechos, editar, desligar, reprocessar e excluir (com confirmação).
+- **Por agente:** cartão "Conhecimento" na tela do agente escolhe as fontes que ele usa (vale na hora).
+- **Busca** por texto em português (PostgreSQL), sem serviço novo. O agente usa os trechos relevantes e, quando a base não tem a resposta, é instruído a não inventar e oferecer um atendente.
+- **Transparência:** o laboratório mostra os trechos usados; Atendimentos mostra "Baseada em…" em cada rascunho.
+- **Segurança:** leitura de links protegida contra acesso à rede interna (SSRF), com limites de tamanho, tempo e redirecionamentos; arquivos só no bucket.
+- Nova fila `ai-knowledge` no worker e migração reversível `20261127120000_ai_knowledge` (só tabelas novas).
+- Testes: 8 do pacote de IA, 17 do processamento e busca, 5 do atendimento com base, 11 de rotas; 14 de ponta a ponta.
+- Passo de implantação: nenhuma variável nova. O worker precisa continuar com `CREDENTIALS_MASTER_KEY`.

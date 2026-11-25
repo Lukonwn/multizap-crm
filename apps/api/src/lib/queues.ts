@@ -1,12 +1,14 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import {
+  AI_KNOWLEDGE_QUEUE,
   CAMPAIGNS_QUEUE,
   GATEWAY_QUEUE,
   IMPORTS_QUEUE,
   MAINTENANCE_QUEUE,
   QUEUE_LABEL,
   TOOLS_QUEUE,
+  type AiKnowledgeJob,
   type MaintenanceJob,
   type QueueCounts,
   type CampaignJob,
@@ -67,6 +69,37 @@ export class ToolQueue {
 
   async add(data: ToolJobData): Promise<void> {
     await this.queue.add('run', data, { jobId: data.jobId });
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
+    this.conn.disconnect();
+  }
+}
+
+/** Fila de leitura das fontes de conhecimento do MultiZap AI (consumida pelo worker). */
+export class KnowledgeQueue {
+  private readonly conn: Redis;
+  readonly queue: Queue<AiKnowledgeJob>;
+
+  constructor(redisUrl: string, prefix = 'bull') {
+    this.conn = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.conn.on('error', () => undefined);
+    this.queue = new Queue<AiKnowledgeJob>(AI_KNOWLEDGE_QUEUE, {
+      connection: this.conn,
+      prefix,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 10_000 },
+        removeOnComplete: 200,
+        removeOnFail: 500,
+      },
+    });
+  }
+
+  /** Cada pedido gera um job novo: reprocessar depois de um erro é permitido. */
+  async add(sourceId: string): Promise<void> {
+    await this.queue.add('process', { sourceId }, { jobId: `kb-${sourceId}-${Date.now()}` });
   }
 
   async close(): Promise<void> {

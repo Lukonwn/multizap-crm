@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@multizap/database';
-import { isOperationsPaused } from '@multizap/database';
+import { hasKnowledge, isOperationsPaused, searchKnowledge } from '@multizap/database';
 import {
+  KNOWLEDGE_LIMITS,
   OpenRouterClient,
   OpenRouterError,
   buildMessages,
+  buildSearchQuery,
   buildSystemPrompt,
   estimateCost,
+  hitsForDisplay,
+  knowledgeForPrompt,
+  type KnowledgeHit,
   type ChatMessage,
   type ModelInfo,
   type PersonaSpec,
@@ -201,11 +206,39 @@ export class AiResponder {
       spec.agent.memoryEnabled && state?.memory && state.memoryAgentId === agent.id
         ? state.memory
         : null;
+    // Base de conhecimento: trechos relevantes às últimas mensagens do contato.
+    // Uma falha na busca nunca impede a resposta (o agente apenas responde sem a base).
+    let hits: KnowledgeHit[] = [];
+    let knowledgeSearched = false;
+    try {
+      knowledgeSearched = await hasKnowledge(prisma, agent.id);
+      if (knowledgeSearched) {
+        const recent = history
+          .filter((m) => m.role === 'user')
+          .slice(-2)
+          .map((m) => m.content)
+          .join(' ');
+        hits = (await searchKnowledge(
+          prisma,
+          agent.id,
+          buildSearchQuery(recent),
+          KNOWLEDGE_LIMITS.searchLimit,
+        )) as KnowledgeHit[];
+      }
+    } catch (err) {
+      this.log('Busca na base de conhecimento falhou', { agentId: agent.id, err: String(err) });
+    }
+    const sources = hitsForDisplay(hits);
     const messages = buildMessages(
       spec.persona,
       { name: spec.agent.name, instructions: spec.agent.instructions },
       history,
-      { memory, contactName: conv.contact?.name ?? conv.title },
+      {
+        memory,
+        contactName: conv.contact?.name ?? conv.title,
+        knowledge: knowledgeForPrompt(hits),
+        knowledgeSearched,
+      },
     );
 
     // O modo é um interruptor operacional: vale na hora, sem nova publicação.
@@ -247,6 +280,7 @@ export class AiResponder {
             versionId: agent.publishedVersionId,
             inboundMessageId: msg.id,
             body: reply,
+            sources,
           },
         });
       } catch (err) {
@@ -320,6 +354,7 @@ export class AiResponder {
             inboundMessageId: msg.id,
             body: reply,
             sentBody: reply,
+            sources,
             status: 'SENT',
             autoSent: true,
             messageId: m.id,

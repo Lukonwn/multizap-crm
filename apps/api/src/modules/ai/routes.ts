@@ -1,12 +1,18 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AiAgent, AiPersona, Prisma } from '@multizap/database';
+import { hasKnowledge, searchKnowledge } from '@multizap/database';
 import {
+  KNOWLEDGE_LIMITS,
   OpenRouterClient,
   OpenRouterError,
   buildMessages,
+  buildSearchQuery,
   buildSystemPrompt,
   estimateCost,
+  hitsForDisplay,
+  knowledgeForPrompt,
+  type KnowledgeHit,
   type ModelInfo,
   type PersonaSpec,
 } from '@multizap/ai';
@@ -905,10 +911,33 @@ export async function aiRoutes(app: FastifyInstance) {
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
     history.push({ role: 'user', content: text });
     const persona = spec.persona as PersonaSpec;
+    // Base de conhecimento do agente (as fontes ligadas valem tanto para rascunho quanto para publicada).
+    let hits: KnowledgeHit[] = [];
+    let knowledgeSearched = false;
+    try {
+      knowledgeSearched = await hasKnowledge(prisma, agent.id);
+      if (knowledgeSearched) {
+        const recent = history
+          .filter((m) => m.role === 'user')
+          .slice(-2)
+          .map((m) => m.content)
+          .join(' ');
+        hits = (await searchKnowledge(
+          prisma,
+          agent.id,
+          buildSearchQuery(recent),
+          KNOWLEDGE_LIMITS.searchLimit,
+        )) as KnowledgeHit[];
+      }
+    } catch {
+      /* a base de conhecimento nunca impede o teste */
+    }
+    const promptCtx = { knowledge: knowledgeForPrompt(hits), knowledgeSearched };
     const messages = buildMessages(
       persona,
       { name: spec.agent.name, instructions: spec.agent.instructions },
       history,
+      promptCtx,
     );
 
     const userMsg = await prisma.aiTestMessage.create({
@@ -958,10 +987,12 @@ export async function aiRoutes(app: FastifyInstance) {
             costUsd: cost,
             costConfirmed: confirmed,
             latencyMs: result.latencyMs,
-            systemPrompt: buildSystemPrompt(persona, {
-              name: spec.agent.name,
-              instructions: spec.agent.instructions,
-            }),
+            systemPrompt: buildSystemPrompt(
+              persona,
+              { name: spec.agent.name, instructions: spec.agent.instructions },
+              promptCtx,
+            ),
+            knowledge: hitsForDisplay(hits),
           },
         },
       });

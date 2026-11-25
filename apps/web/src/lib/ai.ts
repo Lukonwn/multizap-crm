@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type {
   AgentDTO,
   AiConversationDTO,
+  AiKnowledgeSourceDTO,
   AiDraftDTO,
   AiUsageSummaryDTO,
   AgentVersionDTO,
@@ -30,6 +31,9 @@ export const aiKeys = {
     ['ai', 'conversations', filter, accountId] as const,
   drafts: (conversationId: string) => ['ai', 'drafts', conversationId] as const,
   usage: (agentId: string) => ['ai', 'usage', agentId] as const,
+  knowledge: (q: string) => ['ai', 'knowledge', q] as const,
+  knowledgeDetail: (id: string) => ['ai', 'knowledge', 'detail', id] as const,
+  agentKnowledge: (id: string) => ['ai', 'agent', id, 'knowledge'] as const,
 };
 
 export function useAiSettings() {
@@ -137,6 +141,60 @@ export function useAiUsage(agentId: string | null) {
       api<AiUsageSummaryDTO>(`/ai/usage?${toQueryString({ agentId: agentId ?? undefined })}`),
     enabled: !!agentId,
   });
+}
+
+/** Fontes de conhecimento. Enquanto alguma está na fila ou processando, a lista se atualiza sozinha. */
+export function useKnowledge(filters: { kind?: string; status?: string; q?: string } = {}) {
+  const qs = toQueryString(filters);
+  return useQuery({
+    queryKey: aiKeys.knowledge(qs),
+    queryFn: () => api<{ items: AiKnowledgeSourceDTO[]; limit: number }>(`/ai/knowledge?${qs}`),
+    refetchInterval: (q) =>
+      q.state.data?.items.some((i) => i.status === 'PENDING' || i.status === 'PROCESSING')
+        ? 2500
+        : false,
+  });
+}
+
+export function useKnowledgeDetail(id: string | null) {
+  return useQuery({
+    queryKey: aiKeys.knowledgeDetail(id ?? ''),
+    queryFn: () =>
+      api<{
+        source: AiKnowledgeSourceDTO & { content: string | null };
+        chunks: { id: string; position: number; title: string | null; content: string }[];
+      }>(`/ai/knowledge/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useAgentKnowledge(agentId: string | null) {
+  return useQuery({
+    queryKey: aiKeys.agentKnowledge(agentId ?? ''),
+    queryFn: () =>
+      api<{ sourceIds: string[] }>(`/ai/agents/${agentId}/knowledge`).then((r) => r.sourceIds),
+    enabled: !!agentId,
+  });
+}
+
+/** Envio de arquivo (multipart) para a base de conhecimento. */
+export async function uploadKnowledgeFile(file: File, name: string): Promise<AiKnowledgeSourceDTO> {
+  const form = new FormData();
+  if (name.trim()) form.append('name', name.trim());
+  form.append('file', file);
+  const csrf = document.cookie
+    .split('; ')
+    .find((c) => c.startsWith('mz_csrf='))
+    ?.slice('mz_csrf='.length);
+  const res = await fetch('/api/ai/knowledge/file', {
+    method: 'POST',
+    body: form,
+    credentials: 'same-origin',
+    headers: csrf ? { 'x-csrf-token': csrf } : {},
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error?.message ?? 'Não foi possível enviar o arquivo.');
+  return data.source;
 }
 
 /** Mutação genérica do MultiZap AI: invalida os dados da área ao terminar. */

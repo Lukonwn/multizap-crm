@@ -141,6 +141,7 @@ export const QUEUE_LABEL: Record<string, string> = {
   'gateway-commands': 'Gateway',
   maintenance: 'Backups',
   'ai-inbound': 'MultiZap AI',
+  'ai-knowledge': 'Conhecimento',
 };
 
 /** Rótulos das ações de auditoria exibidas no painel. */
@@ -193,6 +194,11 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'ai.agent_restored': 'Versão do agente restaurada',
   'ai.agent_deleted': 'Agente excluído',
   'ai.agent_activated': 'Agente ativado',
+  'ai.knowledge_created': 'Conhecimento adicionado',
+  'ai.knowledge_updated': 'Conhecimento alterado',
+  'ai.knowledge_reprocessed': 'Conhecimento reprocessado',
+  'ai.knowledge_deleted': 'Conhecimento excluído',
+  'ai.agent_knowledge_updated': 'Conhecimento do agente alterado',
   'ai.agent_paused': 'Agente pausado',
   'ai.draft_approved': 'Resposta da IA aprovada e enviada',
   'ai.draft_discarded': 'Resposta da IA descartada',

@@ -119,6 +119,25 @@ function DebugPanel({ m, session }: { m: TestMessageDTO | null; session: TestSes
                 </>
               )}
             </dl>
+            {d?.knowledge !== undefined && (
+              <div className="border-t border-border pt-3">
+                <p className="mb-1.5 text-xs font-medium text-muted">Trechos da base usados</p>
+                {d.knowledge.length ? (
+                  <ul className="space-y-2">
+                    {d.knowledge.map((k, i) => (
+                      <li key={i} className="rounded-lg bg-bg-soft p-2 text-xs">
+                        <p className="font-medium text-fg">{k.name}</p>
+                        <p className="text-muted">{k.snippet}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Nenhum trecho da base correspondeu a esta pergunta.
+                  </p>
+                )}
+              </div>
+            )}
             {d?.systemPrompt && (
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-muted">

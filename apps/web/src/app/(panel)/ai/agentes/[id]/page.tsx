@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, FlaskConical, Pause, Play, Rocket, RotateCcw, Trash2 } from 'lucide-react';
 import {
   ACCOUNT_STATUS_LABEL,
+  KNOWLEDGE_STATUS_LABEL,
   AGENT_MODES,
   AGENT_MODE_LABEL,
   formatPhone,
@@ -31,6 +32,8 @@ import { formatDateTime } from '@/lib/format';
 import {
   formatUsd,
   useAgent,
+  useAgentKnowledge,
+  useKnowledge,
   useAgentVersions,
   useAiMutation,
   useAiSettings,
@@ -312,6 +315,106 @@ function ModeCard({ agent }: { agent: AgentDTO }) {
         )}
         {save.error && <Alert tone="danger">{(save.error as Error).message}</Alert>}
         {save.isPending && <Spinner />}
+      </CardContent>
+    </Card>
+  );
+}
+
+function KnowledgeCard({ agent }: { agent: AgentDTO }) {
+  const sources = useKnowledge();
+  const linked = useAgentKnowledge(agent.id);
+  const save = useAiMutation();
+  const [selected, setSelected] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+  const current = selected ?? linked.data ?? [];
+  const items = sources.data?.items ?? [];
+  const dirty =
+    selected !== null &&
+    (selected.length !== (linked.data?.length ?? 0) ||
+      selected.some((id) => !linked.data?.includes(id)));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Conhecimento</CardTitle>
+        <CardDescription>
+          Fontes que o agente pode consultar. Vale na hora, sem nova publicação.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {sources.isLoading || linked.isLoading ? (
+          <Spinner />
+        ) : !items.length ? (
+          <p className="text-sm text-muted">
+            Nenhuma fonte cadastrada.{' '}
+            <Link className="underline" href="/ai/conhecimento">
+              Adicionar conhecimento
+            </Link>
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {items.map((src) => (
+              <li key={src.id}>
+                <label className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[var(--color-accent)]"
+                    checked={current.includes(src.id)}
+                    onChange={(e) => {
+                      setSaved(false);
+                      setSelected(
+                        e.target.checked
+                          ? [...current, src.id]
+                          : current.filter((x) => x !== src.id),
+                      );
+                    }}
+                  />
+                  <span className="font-medium text-fg">{src.name}</span>
+                  <Badge
+                    tone={
+                      src.status === 'READY'
+                        ? 'success'
+                        : src.status === 'ERROR'
+                          ? 'danger'
+                          : 'neutral'
+                    }
+                  >
+                    {KNOWLEDGE_STATUS_LABEL[src.status]}
+                  </Badge>
+                  {!src.enabled && <Badge>Desligada</Badge>}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        {save.error && <Alert tone="danger">{(save.error as Error).message}</Alert>}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            disabled={!dirty}
+            loading={save.isPending}
+            onClick={() =>
+              save.mutate(
+                {
+                  path: `/ai/agents/${agent.id}/knowledge`,
+                  method: 'PUT',
+                  json: { sourceIds: current },
+                },
+                {
+                  onSuccess: () => {
+                    setSaved(true);
+                    setSelected(null);
+                  },
+                },
+              )
+            }
+          >
+            Salvar conhecimento
+          </Button>
+          {saved && <span className="text-sm text-success">Salvo.</span>}
+          <Link className="text-sm text-muted underline" href="/ai/conhecimento">
+            Gerenciar fontes
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );
@@ -665,6 +768,7 @@ export default function AgentPage() {
         <GeneralCard agent={a} />
         <div className="space-y-6">
           <ModeCard agent={a} />
+          <KnowledgeCard agent={a} />
           <PublishCard agent={a} />
           <AccountsCard agent={a} />
           <OperationCard agent={a} />

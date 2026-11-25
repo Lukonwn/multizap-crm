@@ -24,6 +24,80 @@ export const AI_HUMAN_WINDOW_HOURS = 12;
 /** Teto de respostas da IA por instância por hora (proteção contra excesso de envio). */
 export const AI_ACCOUNT_HOURLY_CAP = 60;
 
+/** Fila de processamento das fontes de conhecimento (arquivos e links são lidos pelo worker). */
+export const AI_KNOWLEDGE_QUEUE = 'ai-knowledge';
+export interface AiKnowledgeJob {
+  sourceId: string;
+}
+export const MAX_KNOWLEDGE_SOURCES = 200;
+export const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
+export const KNOWLEDGE_FILE_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'csv'] as const;
+
+export const KNOWLEDGE_KINDS = ['TEXT', 'QA', 'FILE', 'LINK'] as const;
+export const KNOWLEDGE_KIND_LABEL: Record<(typeof KNOWLEDGE_KINDS)[number], string> = {
+  TEXT: 'Texto',
+  QA: 'Pergunta e resposta',
+  FILE: 'Arquivo',
+  LINK: 'Link',
+};
+export const KNOWLEDGE_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Na fila',
+  PROCESSING: 'Processando',
+  READY: 'Pronta',
+  ERROR: 'Com erro',
+};
+
+const kbName = z.string().trim().min(2, 'Informe um nome com ao menos 2 caracteres.').max(120);
+export const knowledgeTextSchema = z.object({
+  name: kbName,
+  content: z.string().trim().min(10, 'Escreva um texto com ao menos 10 caracteres.').max(200_000),
+});
+export const knowledgeQaSchema = z.object({
+  question: z.string().trim().min(3, 'Escreva a pergunta.').max(500),
+  answer: z.string().trim().min(2, 'Escreva a resposta.').max(4000),
+  name: kbName.optional(),
+});
+export const knowledgeLinkSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .url('Informe um endereço completo, começando com http:// ou https://.')
+    .max(2000),
+  name: kbName.optional(),
+});
+export const knowledgeUpdateSchema = z.object({
+  name: kbName.optional(),
+  enabled: z.boolean().optional(),
+  /** Texto (TEXT) ou resposta (QA): reprocessa a fonte. */
+  content: z.string().trim().min(2).max(200_000).optional(),
+  question: z.string().trim().min(3).max(500).optional(),
+});
+
+export interface AiKnowledgeSourceDTO {
+  id: string;
+  name: string;
+  kind: (typeof KNOWLEDGE_KINDS)[number];
+  status: 'PENDING' | 'PROCESSING' | 'READY' | 'ERROR';
+  error: string | null;
+  enabled: boolean;
+  question: string | null;
+  /** Início do conteúdo (texto e resposta). */
+  preview: string | null;
+  url: string | null;
+  fileName: string | null;
+  sizeBytes: number | null;
+  chunkCount: number;
+  processedAt: string | null;
+  createdAt: string;
+  agents: { id: string; name: string }[];
+}
+
+export interface AiKnowledgeUsedDTO {
+  sourceId: string;
+  name: string;
+  snippet: string;
+}
+
 export const AGENT_MODES = ['REVIEW', 'AUTO'] as const;
 
 export const FORMALITY_LABEL: Record<(typeof FORMALITY_OPTIONS)[number], string> = {
@@ -202,6 +276,8 @@ export interface TestMessageDTO {
     latencyMs?: number;
     systemPrompt?: string;
     errorCode?: string;
+    /** Trechos da base de conhecimento usados nesta resposta. */
+    knowledge?: AiKnowledgeUsedDTO[];
   };
 }
 
@@ -223,6 +299,8 @@ export interface AiDraftDTO {
   body: string;
   status: 'PENDING' | 'SENT' | 'DISCARDED' | 'FAILED';
   autoSent: boolean;
+  /** Trechos da base de conhecimento em que a resposta se baseou. */
+  sources: AiKnowledgeUsedDTO[];
   /** Mensagem do contato que originou a resposta. */
   inboundText: string | null;
   createdAt: string;

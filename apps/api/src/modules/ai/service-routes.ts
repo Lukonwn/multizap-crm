@@ -6,6 +6,7 @@ import {
   MAX_MESSAGE_LENGTH,
   type AiConversationDTO,
   type AiConversationState,
+  type AiKnowledgeUsedDTO,
   type AiDraftDTO,
   type AiUsageSummaryDTO,
 } from '@multizap/shared';
@@ -119,6 +120,7 @@ export async function aiServiceRoutes(app: FastifyInstance) {
     body: d.sentBody ?? d.body,
     status: d.status,
     autoSent: d.autoSent,
+    sources: Array.isArray(d.sources) ? (d.sources as unknown as AiKnowledgeUsedDTO[]) : [],
     inboundText,
     createdAt: d.createdAt.toISOString(),
     decidedAt: d.decidedAt?.toISOString() ?? null,

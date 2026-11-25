@@ -204,6 +204,74 @@ describe('MultiZap AI: atendimento', () => {
     expect(sent).toEqual([]);
   });
 
+  describe('base de conhecimento', () => {
+    const addSource = async (agentId: string, name: string, content: string) => {
+      const src = await prisma.aiKnowledgeSource.create({
+        data: { name, kind: 'TEXT', content, status: 'READY', chunkCount: 1 },
+      });
+      await prisma.aiKnowledgeChunk.create({
+        data: { sourceId: src.id, position: 0, title: name, content },
+      });
+      await prisma.aiAgentKnowledge.create({ data: { agentId, sourceId: src.id } });
+      return src;
+    };
+    const systemPrompt = () => chatCalls[0]!.body.messages[0]!.content;
+
+    it('usa os trechos relevantes no prompt e guarda em quais a resposta se baseou', async () => {
+      const c = await setup('REVIEW', 'Vocês vendem café bourbon?');
+      const src = await addSource(
+        c.agentId,
+        'Catálogo',
+        'O café Bourbon amarelo custa R$ 42 o pacote de 250g.',
+      );
+      await addSource(c.agentId, 'Garantia', 'Garantia de um ano contra defeitos de fabricação.');
+      expect(await run(c)).toEqual({ status: 'drafted' });
+      expect(systemPrompt()).toContain('Informações da empresa');
+      expect(systemPrompt()).toContain('R$ 42 o pacote');
+      expect(systemPrompt()).not.toContain('defeitos de fabricação'); // trecho irrelevante fica de fora
+      const draft = await prisma.aiDraft.findFirstOrThrow();
+      expect(draft.sources).toEqual([
+        expect.objectContaining({ sourceId: src.id, name: 'Catálogo' }),
+      ]);
+    });
+
+    it('no modo automático o rascunho enviado também registra as fontes', async () => {
+      const c = await setup('AUTO', 'Qual o prazo de entrega?');
+      await addSource(c.agentId, 'Entrega', 'O prazo de entrega é de 3 dias úteis.');
+      await run(c);
+      const draft = await prisma.aiDraft.findFirstOrThrow();
+      expect(draft).toMatchObject({ status: 'SENT', autoSent: true });
+      expect((draft.sources as { name: string }[]).map((x) => x.name)).toEqual(['Entrega']);
+    });
+
+    it('sem trecho relevante, o agente é instruído a não inventar (e oferecer um atendente)', async () => {
+      const c = await setup('REVIEW', 'Vocês aceitam pix?');
+      await addSource(c.agentId, 'Garantia', 'Garantia de um ano contra defeitos de fabricação.');
+      await run(c);
+      expect(systemPrompt()).toMatch(/não tem informação sobre esta pergunta/);
+      expect(systemPrompt()).not.toContain('Informações da empresa');
+      expect((await prisma.aiDraft.findFirstOrThrow()).sources).toEqual([]);
+    });
+
+    it('agente sem base de conhecimento responde como antes (sem aviso de base vazia)', async () => {
+      const c = await setup('REVIEW', 'Vocês aceitam pix?');
+      await run(c);
+      expect(systemPrompt()).not.toMatch(/base de conhecimento/i);
+    });
+
+    it('fonte desligada ou com erro não é usada', async () => {
+      const c = await setup('REVIEW', 'Qual a garantia?');
+      const src = await addSource(
+        c.agentId,
+        'Garantia',
+        'Garantia de um ano para todos os produtos.',
+      );
+      await prisma.aiKnowledgeSource.update({ where: { id: src.id }, data: { enabled: false } });
+      await run(c);
+      expect(systemPrompt()).not.toContain('Garantia de um ano');
+    });
+  });
+
   it('sem "digitando" quando o agente desliga o recurso', async () => {
     const c = await setup('AUTO');
     await prisma.aiAgent.update({ where: { id: c.agentId }, data: { showTyping: false } });

@@ -33,6 +33,8 @@ export interface PromptContext {
   knowledge?: { title: string; text: string }[];
   /** Resumo do que já se sabe sobre o contato (Entrega 2). */
   memory?: string | null;
+  /** O agente tem base de conhecimento e ela foi consultada para esta pergunta. */
+  knowledgeSearched?: boolean;
   /** Nome do contato, quando conhecido. */
   contactName?: string | null;
 }
@@ -104,7 +106,10 @@ export function buildSystemPrompt(
       'Informações da empresa (use como fonte principal; se a resposta não estiver aqui, não invente):\n' +
         ctx.knowledge.map((k, i) => `[${i + 1}] ${k.title}\n${k.text}`).join('\n\n'),
     );
-  }
+  } else if (ctx.knowledgeSearched)
+    sections.push(
+      'A base de conhecimento da empresa foi consultada e não tem informação sobre esta pergunta. Não invente preços, prazos, políticas ou detalhes: diga que vai verificar e ofereça um atendente.',
+    );
   sections.push(`Regras que sempre valem:\n${FIXED_RULES.map((r) => `- ${r}`).join('\n')}`);
   return sections.filter((s): s is string => !!s).join('\n\n');
 }
